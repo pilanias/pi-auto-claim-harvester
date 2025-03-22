@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { WalletData, ClaimableBalance, TransactionStatus } from '@/lib/types';
 import { fetchSequenceNumber, submitTransaction } from '@/lib/api';
@@ -18,6 +17,8 @@ export function useTransaction(
   const [processingBalances, setProcessingBalances] = useState<Record<string, TransactionStatus>>({});
   const [activeTimers, setActiveTimers] = useState<Record<string, NodeJS.Timeout>>({});
   const sequenceNumbersRef = useRef<Record<string, string>>({});
+  const transactionRetriesRef = useRef<Record<string, number>>({});
+  const MAX_RETRIES = 5;
 
   // Clean up timers on unmount
   useEffect(() => {
@@ -80,6 +81,9 @@ export function useTransaction(
       return;
     }
     
+    // Reset retry count on new processing attempt
+    transactionRetriesRef.current[balance.id] = 0;
+    
     // Update status to fetching sequence
     setProcessingBalances(prev => ({ ...prev, [balance.id]: 'fetching_sequence' }));
     
@@ -90,25 +94,22 @@ export function useTransaction(
     });
     
     try {
-      // Fetch sequence number - this returns the EXACT sequence from the network
-      const sequenceNumber = await fetchSequenceNumber(wallet.address);
+      // Fetch sequence number directly from Pi Network
+      const accountResponse = await server.loadAccount(wallet.address);
+      const currentSequence = accountResponse.sequence;
       
-      // Log the raw sequence number we got
+      // Log the raw sequence number we got from Stellar SDK directly
       addLog({
-        message: `Raw sequence number from API: ${sequenceNumber}`,
+        message: `Raw sequence number from Pi Network: ${currentSequence}`,
         status: 'info',
         walletId: wallet.id
       });
       
-      // For Pi Network, use a sequence number that's two less than what we'd normally use
-      // This should help with the transaction authentication issues
-      const adjustedSequenceNumber = (BigInt(sequenceNumber) - 2n).toString();
-      
-      // Store the adjusted sequence number
-      sequenceNumbersRef.current[balance.id] = adjustedSequenceNumber;
+      // Store the sequence number as is (no adjustment needed when using SDK directly)
+      sequenceNumbersRef.current[balance.id] = currentSequence;
       
       addLog({
-        message: `Adjusted sequence number: ${adjustedSequenceNumber} (decreased by 2)`,
+        message: `Using sequence number: ${currentSequence}`,
         status: 'success',
         walletId: wallet.id
       });
@@ -159,33 +160,43 @@ export function useTransaction(
 
   // Construct and submit transaction with both claim and payment operations
   const constructAndSubmitTransaction = useCallback(async (balance: ClaimableBalance, wallet: WalletData) => {
+    // Increment retry counter
+    const retryCount = (transactionRetriesRef.current[balance.id] || 0) + 1;
+    transactionRetriesRef.current[balance.id] = retryCount;
+    
+    if (retryCount > MAX_RETRIES) {
+      addLog({
+        message: `Maximum retry attempts (${MAX_RETRIES}) reached for balance ${balance.id}. Please try again manually.`,
+        status: 'error',
+        walletId: wallet.id
+      });
+      
+      setProcessingBalances(prev => ({ ...prev, [balance.id]: 'failed' }));
+      toast.error(`Failed to process balance after ${MAX_RETRIES} attempts`);
+      return;
+    }
+    
     // Update status to constructing
     setProcessingBalances(prev => ({ ...prev, [balance.id]: 'constructing' }));
     
     addLog({
-      message: `Constructing transaction for ${balance.amount} Pi`,
+      message: `Constructing transaction for ${balance.amount} Pi (Attempt ${retryCount}/${MAX_RETRIES})`,
       status: 'info',
       walletId: wallet.id
     });
     
     try {
-      // Get sequence number from our stored reference
-      const sequenceNumber = sequenceNumbersRef.current[balance.id];
-      if (!sequenceNumber) {
-        throw new Error('Sequence number not found');
-      }
+      // Get current sequence directly using the SDK instead of our stored reference
+      const accountResponse = await server.loadAccount(wallet.address);
+      const currentSequence = accountResponse.sequence;
       
-      // Create source account with the adjusted sequence number
-      const source = new StellarSdk.Account(wallet.address, sequenceNumber);
-      
-      // Log the exact sequence being used
       addLog({
-        message: `Using sequence number: ${sequenceNumber} (decreased by 2)`,
+        message: `Using fresh sequence number: ${currentSequence}`,
         status: 'info',
         walletId: wallet.id
       });
       
-      // Verify private key starts with 'S'
+      // Verify private key format
       if (!wallet.privateKey.startsWith('S')) {
         addLog({
           message: `WARNING: Private key doesn't start with 'S', might not be valid`,
@@ -194,45 +205,13 @@ export function useTransaction(
         });
       }
       
-      // Build transaction with BOTH claim and payment operations
-      let transaction = new StellarSdk.TransactionBuilder(source, {
-        fee: "500000", // Increased fee to 500000 stroops for higher priority
-        networkPassphrase: piNetwork
-      })
-      .addOperation(
-        StellarSdk.Operation.claimClaimableBalance({
-          balanceId: balance.id
-        })
-      )
-      .addOperation(
-        StellarSdk.Operation.payment({
-          destination: wallet.destinationAddress,
-          asset: StellarSdk.Asset.native(), // Pi is the native asset
-          amount: balance.amount
-        })
-      )
-      // No memo needed
-      .setTimeout(0) // Set timeout to 0, which effectively means no timeout
-      .build();
-      
-      // Update status to signing
-      setProcessingBalances(prev => ({ ...prev, [balance.id]: 'signing' }));
-      
-      addLog({
-        message: 'Signing transaction with private key',
-        status: 'info',
-        walletId: wallet.id
-      });
-      
+      // Try to derive public key from private key to validate
       try {
         // Clean any whitespace from private key
         const cleanPrivateKey = wallet.privateKey.trim();
-        
-        // Sign transaction with private key - handle any key related errors
         const keyPair = StellarSdk.Keypair.fromSecret(cleanPrivateKey);
-        
-        // Log the public key from the private key to verify it matches
         const derivedPublicKey = keyPair.publicKey();
+        
         addLog({
           message: `Public key derived from private key: ${derivedPublicKey}`,
           status: 'info',
@@ -249,103 +228,169 @@ export function useTransaction(
           throw new Error('Private key does not match wallet address');
         }
         
-        // Sign transaction with the keypair
-        transaction.sign(keyPair);
-        
         addLog({
-          message: 'Transaction signed successfully with correct private key',
+          message: 'Private key validation successful',
           status: 'success',
           walletId: wallet.id
         });
-      } catch (signError) {
-        throw new Error(`Signing error: ${signError instanceof Error ? signError.message : 'Invalid private key'}`);
+      } catch (keyError) {
+        addLog({
+          message: `Private key validation error: ${keyError instanceof Error ? keyError.message : 'Invalid private key format'}`,
+          status: 'error',
+          walletId: wallet.id
+        });
+        throw new Error('Invalid private key');
       }
       
-      // Get transaction XDR
-      const xdr = transaction.toXDR();
+      // Build transaction with BOTH claim and payment operations using the SDK's TransactionBuilder
+      const fee = "200000"; // 200000 stroops (~0.02 Pi) for higher priority
       
-      // Log the XDR for debugging
       addLog({
-        message: `Transaction XDR: ${xdr.substring(0, 30)}...`,
+        message: `Setting transaction fee to ${fee} stroops for higher priority`,
         status: 'info',
         walletId: wallet.id
       });
+      
+      // Use the account with the fetched sequence
+      let transaction = new StellarSdk.TransactionBuilder(accountResponse, {
+        fee,
+        networkPassphrase: piNetwork
+      })
+      .addOperation(
+        StellarSdk.Operation.claimClaimableBalance({
+          balanceId: balance.id
+        })
+      )
+      .addOperation(
+        StellarSdk.Operation.payment({
+          destination: wallet.destinationAddress,
+          asset: StellarSdk.Asset.native(), // Pi is the native asset
+          amount: balance.amount
+        })
+      )
+      .setTimeout(30) // Set timeout to 30 seconds
+      .build();
+      
+      // Update status to signing
+      setProcessingBalances(prev => ({ ...prev, [balance.id]: 'signing' }));
+      
+      addLog({
+        message: 'Signing transaction with private key',
+        status: 'info',
+        walletId: wallet.id
+      });
+      
+      // Sign transaction with private key
+      const cleanPrivateKey = wallet.privateKey.trim();
+      const keyPair = StellarSdk.Keypair.fromSecret(cleanPrivateKey);
+      transaction.sign(keyPair);
+      
+      addLog({
+        message: 'Transaction signed successfully',
+        status: 'success',
+        walletId: wallet.id
+      });
+      
+      // Get transaction XDR
+      const xdr = transaction.toXDR();
       
       // Update status to submitting
       setProcessingBalances(prev => ({ ...prev, [balance.id]: 'submitting' }));
       
       addLog({
-        message: 'Submitting transaction to network',
+        message: 'Submitting transaction to Pi Network',
         status: 'info',
         walletId: wallet.id
       });
       
-      // Submit the transaction
-      const result = await submitTransaction(xdr);
+      // Submit the transaction directly using the SDK
+      const transactionResult = await server.submitTransaction(transaction);
       
-      // Check if transaction was successful
-      if (result.successful) {
-        // Update status to completed
-        setProcessingBalances(prev => ({ ...prev, [balance.id]: 'completed' }));
-        
-        addLog({
-          message: `Transaction successful! Hash: ${result.hash}`,
-          status: 'success',
-          walletId: wallet.id
-        });
-        
-        toast.success(`Successfully claimed and transferred ${balance.amount} Pi`);
-        
-        // Remove the balance after successful processing
-        removeBalance(balance.id);
-      } else {
-        // If we have error codes, log them in detail
-        if (result.extras && result.extras.result_codes) {
-          const errorCodes = JSON.stringify(result.extras.result_codes);
-          addLog({
-            message: `Error codes: ${errorCodes}`,
-            status: 'error',
-            walletId: wallet.id
-          });
-          
-          if (result.extras.envelope_xdr) {
-            addLog({
-              message: `Envelope XDR: ${result.extras.envelope_xdr.substring(0, 30)}...`,
-              status: 'info',
-              walletId: wallet.id
-            });
-          }
-          
-          throw new Error(`Transaction failed with codes: ${errorCodes}`);
-        } else {
-          throw new Error('Transaction submission was not successful');
-        }
-      }
+      // Transaction successful
+      setProcessingBalances(prev => ({ ...prev, [balance.id]: 'completed' }));
+      
+      addLog({
+        message: `Transaction successful! Hash: ${transactionResult.hash}`,
+        status: 'success',
+        walletId: wallet.id
+      });
+      
+      toast.success(`Successfully claimed and transferred ${balance.amount} Pi`);
+      
+      // Remove the balance after successful processing
+      removeBalance(balance.id);
       
       // Clean up
       delete sequenceNumbersRef.current[balance.id];
+      delete transactionRetriesRef.current[balance.id];
       setActiveTimers(prev => {
         const newTimers = { ...prev };
         delete newTimers[balance.id];
         return newTimers;
       });
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('Transaction error:', error);
+      
+      let errorMessage = 'Unknown error';
+      let retryDelay = 30000; // Default 30 seconds
+      
+      if (error.response) {
+        // Handle Horizon API errors
+        try {
+          const errorResult = error.response.data;
+          
+          addLog({
+            message: `Error details: ${JSON.stringify(errorResult)}`,
+            status: 'error',
+            walletId: wallet.id
+          });
+          
+          // Extract error codes
+          if (errorResult.extras && errorResult.extras.result_codes) {
+            const errorCodes = JSON.stringify(errorResult.extras.result_codes);
+            errorMessage = `Transaction failed with codes: ${errorCodes}`;
+            
+            // Log the envelope XDR for debugging
+            if (errorResult.extras.envelope_xdr) {
+              addLog({
+                message: `Envelope XDR: ${errorResult.extras.envelope_xdr}`,
+                status: 'info',
+                walletId: wallet.id
+              });
+            }
+            
+            // Special handling for specific error codes
+            if (errorResult.extras.result_codes.transaction === 'tx_bad_seq') {
+              addLog({
+                message: 'Sequence number mismatch. Will retry with a fresh sequence number.',
+                status: 'warning',
+                walletId: wallet.id
+              });
+              retryDelay = 5000; // Retry sooner for sequence errors
+            }
+          }
+        } catch (parseError) {
+          errorMessage = `Error parsing response: ${error.message}`;
+        }
+      } else if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+      
       setProcessingBalances(prev => ({ ...prev, [balance.id]: 'failed' }));
       
       addLog({
-        message: `Transaction failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        message: `Transaction failed: ${errorMessage}`,
         status: 'error',
         walletId: wallet.id
       });
       
-      toast.error('Transaction failed, will retry in 30 seconds');
+      toast.error(`Transaction failed, will retry in ${Math.floor(retryDelay/1000)} seconds`);
       
       // Retry after a delay
       const timer = setTimeout(() => {
-        startProcessingBalance(balance);
-      }, 30000);
+        constructAndSubmitTransaction(balance, wallet);
+      }, retryDelay);
       
       setActiveTimers(prev => ({ ...prev, [balance.id]: timer }));
     }

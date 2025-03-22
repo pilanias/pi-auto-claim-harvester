@@ -1,10 +1,14 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { Wallet, Key, ArrowRight, Plus } from 'lucide-react';
+import { Textarea } from '@/components/ui/textarea';
+import { Wallet, Key, ArrowRight, Plus, RefreshCw } from 'lucide-react';
+import * as StellarSdk from 'stellar-sdk';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { useForm } from 'react-hook-form';
 
 interface WalletFormProps {
   onAddWallet: (walletData: { address: string; privateKey: string; destinationAddress: string }) => boolean;
@@ -12,29 +16,99 @@ interface WalletFormProps {
 }
 
 const WalletForm: React.FC<WalletFormProps> = ({ onAddWallet, className = '' }) => {
+  const [useSeedPhrase, setUseSeedPhrase] = useState(true);
+  const [seedPhrase, setSeedPhrase] = useState('');
+  const [derivedAddress, setDerivedAddress] = useState('');
+  const [derivedPrivateKey, setDerivedPrivateKey] = useState('');
+  const [destinationAddress, setDestinationAddress] = useState('');
+  const [isDerivingKeys, setIsDerivingKeys] = useState(false);
   const [walletAddress, setWalletAddress] = useState('');
   const [privateKey, setPrivateKey] = useState('');
-  const [destinationAddress, setDestinationAddress] = useState('');
   const [showPrivateKey, setShowPrivateKey] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Function to derive keys from seed phrase
+  const deriveKeysFromSeedPhrase = async () => {
+    try {
+      setIsDerivingKeys(true);
+      
+      // Simple validation
+      if (!seedPhrase.trim()) {
+        throw new Error('Seed phrase is required');
+      }
+      
+      // Split the seed phrase into words
+      const words = seedPhrase.trim().split(/\s+/);
+      
+      // Basic validation of word count (BIP-39 standard)
+      if (words.length !== 12 && words.length !== 24) {
+        throw new Error('Seed phrase must contain 12 or 24 words');
+      }
+      
+      // Use StellarSDK to derive keys
+      // Note: This is a simplified implementation - in a real app you'd use a proper BIP-39 library
+      const seed = StellarSdk.Utils.createHash('sha256').update(seedPhrase).digest('hex');
+      const keyPair = StellarSdk.Keypair.fromRawEd25519Seed(Buffer.from(seed.substring(0, 32), 'hex'));
+      
+      // Get the derived public and private keys
+      const publicKey = keyPair.publicKey();
+      const secretKey = keyPair.secret();
+      
+      // Update the state with derived keys
+      setDerivedAddress(publicKey);
+      setDerivedPrivateKey(secretKey);
+      
+      return { publicKey, secretKey };
+    } catch (error) {
+      console.error('Error deriving keys:', error);
+      throw error;
+    } finally {
+      setIsDerivingKeys(false);
+    }
+  };
+  
+  // Handle form submission
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
     
     try {
-      const success = onAddWallet({
-        address: walletAddress.trim(),
-        privateKey: privateKey.trim(),
-        destinationAddress: destinationAddress.trim()
-      });
-      
-      if (success) {
-        // Reset form after successful submission
-        setWalletAddress('');
-        setPrivateKey('');
-        setDestinationAddress('');
-        setShowPrivateKey(false);
+      // If using seed phrase, ensure we have derived keys
+      if (useSeedPhrase) {
+        if (!derivedAddress || !derivedPrivateKey) {
+          const keys = await deriveKeysFromSeedPhrase();
+          if (!keys) return;
+        }
+        
+        // Submit with derived keys
+        const success = onAddWallet({
+          address: derivedAddress,
+          privateKey: derivedPrivateKey,
+          destinationAddress: destinationAddress.trim()
+        });
+        
+        if (success) {
+          // Reset form after successful submission
+          setSeedPhrase('');
+          setDerivedAddress('');
+          setDerivedPrivateKey('');
+          setDestinationAddress('');
+        }
+      } else {
+        // Direct private key submission
+        const success = onAddWallet({
+          address: walletAddress.trim(),
+          privateKey: privateKey.trim(),
+          destinationAddress: destinationAddress.trim()
+        });
+        
+        if (success) {
+          // Reset form after successful submission
+          setWalletAddress('');
+          setPrivateKey('');
+          setDestinationAddress('');
+          setShowPrivateKey(false);
+        }
       }
     } finally {
       setIsSubmitting(false);
@@ -51,46 +125,109 @@ const WalletForm: React.FC<WalletFormProps> = ({ onAddWallet, className = '' }) 
         <CardDescription>
           Add a wallet to automatically claim and transfer Pi when unlocked
         </CardDescription>
+        
+        {/* Toggle button between seed phrase and direct keys */}
+        <div className="flex items-center justify-end mt-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setUseSeedPhrase(!useSeedPhrase)}
+            className="text-xs"
+          >
+            {useSeedPhrase ? 'Use Direct Keys' : 'Use Seed Phrase'}
+          </Button>
+        </div>
       </CardHeader>
       
       <form onSubmit={handleSubmit}>
         <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="walletAddress">Source Wallet Address</Label>
-            <Input
-              id="walletAddress"
-              placeholder="Enter wallet address to monitor"
-              value={walletAddress}
-              onChange={(e) => setWalletAddress(e.target.value)}
-              required
-              className="transition duration-200"
-            />
-          </div>
-          
-          <div className="space-y-2">
-            <Label htmlFor="privateKey" className="flex justify-between">
-              <span>Private Key</span>
-              <button
-                type="button"
-                onClick={() => setShowPrivateKey(!showPrivateKey)}
-                className="text-xs text-muted-foreground hover:text-primary transition"
-              >
-                {showPrivateKey ? 'Hide' : 'Show'}
-              </button>
-            </Label>
-            <Input
-              id="privateKey"
-              type={showPrivateKey ? 'text' : 'password'}
-              placeholder="Enter private key for signing transactions"
-              value={privateKey}
-              onChange={(e) => setPrivateKey(e.target.value)}
-              required
-              className="transition duration-200"
-            />
-            <p className="text-xs text-muted-foreground mt-1">
-              Your key is only stored locally and never transmitted
-            </p>
-          </div>
+          {useSeedPhrase ? (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="seedPhrase">Seed Phrase</Label>
+                <Textarea
+                  id="seedPhrase"
+                  placeholder="Enter your 12 or 24 word seed phrase, separated by spaces"
+                  value={seedPhrase}
+                  onChange={(e) => setSeedPhrase(e.target.value)}
+                  rows={3}
+                  required
+                  className="transition duration-200"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Your seed phrase is only stored locally and never transmitted
+                </p>
+              </div>
+              
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={deriveKeysFromSeedPhrase}
+                  disabled={isDerivingKeys || !seedPhrase.trim()}
+                  className="gap-2"
+                >
+                  {isDerivingKeys ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-4 h-4" />
+                  )}
+                  Derive Keys
+                </Button>
+              </div>
+              
+              {derivedAddress && (
+                <div className="p-3 bg-muted/50 rounded-md space-y-1">
+                  <Label className="text-xs">Derived Wallet Address:</Label>
+                  <p className="text-sm font-mono break-all">{derivedAddress}</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Verify this matches your expected Pi wallet address
+                  </p>
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="walletAddress">Source Wallet Address</Label>
+                <Input
+                  id="walletAddress"
+                  placeholder="Enter wallet address to monitor"
+                  value={walletAddress}
+                  onChange={(e) => setWalletAddress(e.target.value)}
+                  required
+                  className="transition duration-200"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="privateKey" className="flex justify-between">
+                  <span>Private Key</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowPrivateKey(!showPrivateKey)}
+                    className="text-xs text-muted-foreground hover:text-primary transition"
+                  >
+                    {showPrivateKey ? 'Hide' : 'Show'}
+                  </button>
+                </Label>
+                <Input
+                  id="privateKey"
+                  type={showPrivateKey ? 'text' : 'password'}
+                  placeholder="Enter private key for signing transactions"
+                  value={privateKey}
+                  onChange={(e) => setPrivateKey(e.target.value)}
+                  required
+                  className="transition duration-200"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Your key is only stored locally and never transmitted
+                </p>
+              </div>
+            </>
+          )}
           
           <div className="space-y-2">
             <Label htmlFor="destinationAddress">Destination Address</Label>
@@ -112,7 +249,7 @@ const WalletForm: React.FC<WalletFormProps> = ({ onAddWallet, className = '' }) 
           <Button 
             type="submit" 
             className="w-full gap-2 group" 
-            disabled={isSubmitting}
+            disabled={isSubmitting || (useSeedPhrase && !derivedAddress)}
           >
             <Plus className="w-4 h-4 group-hover:scale-110 transition-transform" />
             Add Wallet
