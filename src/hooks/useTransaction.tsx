@@ -1,11 +1,11 @@
+
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { WalletData, ClaimableBalance, TransactionStatus } from '@/lib/types';
 import { fetchSequenceNumber, submitTransaction } from '@/lib/api';
 import { toast } from 'sonner';
-import * as StellarSdk from 'stellar-sdk';
+import StellarSdk from 'stellar-sdk';
 
 // Set up Stellar SDK network configuration to use Pi Network
-// Fix: Use the correct Network configuration
 const piNetwork = StellarSdk.Networks.PUBLIC; // Using the public network for Pi
 const server = new StellarSdk.Server("https://api.mainnet.minepi.com");
 
