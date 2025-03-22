@@ -94,18 +94,17 @@ export function useTransaction(
     });
     
     try {
-      // Fetch sequence number directly from Pi Network
+      // Fetch account details to get the latest sequence number
       const accountResponse = await server.loadAccount(wallet.address);
       const currentSequence = accountResponse.sequence;
       
-      // Log the raw sequence number we got from Stellar SDK directly
       addLog({
         message: `Raw sequence number from Pi Network: ${currentSequence}`,
         status: 'info',
         walletId: wallet.id
       });
       
-      // Store the sequence number as is (no adjustment needed when using SDK directly)
+      // Store the sequence number
       sequenceNumbersRef.current[balance.id] = currentSequence;
       
       addLog({
@@ -186,12 +185,12 @@ export function useTransaction(
     });
     
     try {
-      // Get current sequence directly using the SDK instead of our stored reference
+      // ALWAYS get a fresh account for every transaction attempt
       const accountResponse = await server.loadAccount(wallet.address);
-      const currentSequence = accountResponse.sequence;
       
+      // Log the fresh sequence number
       addLog({
-        message: `Using fresh sequence number: ${currentSequence}`,
+        message: `Using fresh sequence number: ${accountResponse.sequence}`,
         status: 'info',
         walletId: wallet.id
       });
@@ -205,10 +204,11 @@ export function useTransaction(
         });
       }
       
+      // Clean any whitespace from private key
+      const cleanPrivateKey = wallet.privateKey.trim();
+      
       // Try to derive public key from private key to validate
       try {
-        // Clean any whitespace from private key
-        const cleanPrivateKey = wallet.privateKey.trim();
         const keyPair = StellarSdk.Keypair.fromSecret(cleanPrivateKey);
         const derivedPublicKey = keyPair.publicKey();
         
@@ -242,8 +242,8 @@ export function useTransaction(
         throw new Error('Invalid private key');
       }
       
-      // Build transaction with BOTH claim and payment operations using the SDK's TransactionBuilder
-      const fee = "200000"; // 200000 stroops (~0.02 Pi) for higher priority
+      // Use a higher fee for priority
+      const fee = "300000"; // 300000 stroops (~0.03 Pi) for higher priority
       
       addLog({
         message: `Setting transaction fee to ${fee} stroops for higher priority`,
@@ -251,7 +251,7 @@ export function useTransaction(
         walletId: wallet.id
       });
       
-      // Use the account with the fetched sequence
+      // Build transaction with BOTH claim and payment operations
       let transaction = new StellarSdk.TransactionBuilder(accountResponse, {
         fee,
         networkPassphrase: piNetwork
@@ -281,7 +281,6 @@ export function useTransaction(
       });
       
       // Sign transaction with private key
-      const cleanPrivateKey = wallet.privateKey.trim();
       const keyPair = StellarSdk.Keypair.fromSecret(cleanPrivateKey);
       transaction.sign(keyPair);
       
@@ -360,14 +359,24 @@ export function useTransaction(
               });
             }
             
-            // Special handling for specific error codes
+            // Special handling for tx_bad_seq errors
             if (errorResult.extras.result_codes.transaction === 'tx_bad_seq') {
               addLog({
-                message: 'Sequence number mismatch. Will retry with a fresh sequence number.',
+                message: 'Sequence number error detected. Will retry with a fresh sequence number.',
                 status: 'warning',
                 walletId: wallet.id
               });
-              retryDelay = 5000; // Retry sooner for sequence errors
+              retryDelay = 2000; // Retry much faster for sequence errors
+            }
+            
+            // Special handling for tx_bad_auth errors
+            if (errorResult.extras.result_codes.transaction === 'tx_bad_auth') {
+              addLog({
+                message: 'Authentication error. The private key might be incorrect or the account might not have enough funds.',
+                status: 'error',
+                walletId: wallet.id
+              });
+              retryDelay = 10000; // Retry a bit slower for auth errors
             }
           }
         } catch (parseError) {
