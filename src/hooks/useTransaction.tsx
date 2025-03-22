@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback } from 'react';
 import { WalletData, ClaimableBalance, TransactionStatus } from '@/lib/types';
 import { fetchSequenceNumber, submitTransaction } from '@/lib/api';
@@ -165,6 +164,14 @@ export function useTransaction(
       // Clean private key (trim whitespace)
       const cleanPrivateKey = wallet.privateKey.trim();
       
+      // Log first 4 characters of private key (safely) for debugging
+      console.log(`Using private key starting with: ${cleanPrivateKey.substring(0, 4)}***`);
+      addLog({
+        message: `Using private key starting with: ${cleanPrivateKey.substring(0, 4)}***`,
+        status: 'info',
+        walletId: wallet.id
+      });
+      
       // Validate private key format
       if (!cleanPrivateKey.startsWith('S')) {
         throw new Error('Invalid private key format - must start with S');
@@ -175,11 +182,11 @@ export function useTransaction(
       try {
         keyPair = StellarSdk.Keypair.fromSecret(cleanPrivateKey);
         
-        // Log the public key we're using (only first 6 chars for security)
+        // Log the public key we're using
         const publicKeyFromSecret = keyPair.publicKey();
-        console.log(`Using keypair with public key: ${publicKeyFromSecret.substring(0, 6)}...`);
+        console.log(`Using keypair with public key: ${publicKeyFromSecret}`);
         addLog({
-          message: `Using signing key starting with: ${publicKeyFromSecret.substring(0, 6)}...`,
+          message: `Using signing key: ${publicKeyFromSecret}`,
           status: 'info',
           walletId: wallet.id
         });
@@ -187,7 +194,7 @@ export function useTransaction(
         // Validate that keypair matches the wallet address
         if (publicKeyFromSecret !== wallet.address) {
           addLog({
-            message: `ERROR: Private key generates address ${publicKeyFromSecret.substring(0, 6)}... but wallet address is ${wallet.address.substring(0, 6)}...`,
+            message: `ERROR: Private key generates address ${publicKeyFromSecret} but wallet address is ${wallet.address}`,
             status: 'error',
             walletId: wallet.id
           });
@@ -205,8 +212,6 @@ export function useTransaction(
       }
       
       // IMPORTANT: Convert the sequence to the correct format expected by StellarSdk
-      // This is critical as StellarSdk expects a string but treats it specially
-      // A common cause of tx_bad_auth is incorrect sequence format
       const sequenceAsString = currentSequence.toString();
       
       addLog({
@@ -220,15 +225,14 @@ export function useTransaction(
       
       // Debug log for source account
       addLog({
-        message: `Source account created with address: ${sourceAccount.accountId().substring(0, 8)}...`,
+        message: `Source account created with address: ${sourceAccount.accountId()}`,
         status: 'info',
         walletId: wallet.id
       });
       
-      // Set an even higher base fee to ensure transaction goes through (500,000 stroops = 0.05 Pi)
-      // This is important for priority and to avoid tx_insufficient_fee errors
+      // Try a higher base fee (0.1 Pi = 1,000,000 stroops)
       let transactionBuilder = new StellarSdk.TransactionBuilder(sourceAccount, {
-        fee: "500000", // Increased fee further to ensure high priority
+        fee: "1000000", // 0.1 Pi fee to ensure transaction priority
         networkPassphrase: piNetwork
       });
       
@@ -248,36 +252,65 @@ export function useTransaction(
         })
       );
       
-      // Set a high timeout to accommodate network delays
-      transactionBuilder = transactionBuilder.setTimeout(300); // 5 minutes
+      // Set a higher timeout
+      transactionBuilder = transactionBuilder.setTimeout(600); // 10 minutes
       
       // Build the transaction
       const transaction = transactionBuilder.build();
       
-      // Log balance ID for verification
+      // Log the transaction details before signing
+      const txXdrBeforeSigning = transaction.toXDR();
+      console.log(`Transaction XDR before signing: ${txXdrBeforeSigning}`);
       addLog({
-        message: `Claiming balance ID: ${balance.id.substring(0, 15)}...`,
+        message: `Transaction built successfully, ready for signing`,
         status: 'info',
         walletId: wallet.id
       });
       
       setProcessingBalances(prev => ({ ...prev, [balance.id]: 'signing' }));
       addLog({
-        message: `Signing transaction...`,
+        message: `Signing transaction with key for ${wallet.address}...`,
         status: 'info',
         walletId: wallet.id
       });
       
       // Sign the transaction with our validated keypair
-      transaction.sign(keyPair);
+      try {
+        // Using direct sign method instead of transaction.sign()
+        const signature = keyPair.sign(transaction.hash());
+        transaction.signatures.push(new StellarSdk.xdr.DecoratedSignature({
+          hint: keyPair.signatureHint(),
+          signature: signature
+        }));
+        
+        addLog({
+          message: `✓ Transaction signed successfully`,
+          status: 'success',
+          walletId: wallet.id
+        });
+      } catch (signError) {
+        console.error('Error signing transaction:', signError);
+        addLog({
+          message: `Error signing: ${signError instanceof Error ? signError.message : 'Unknown signing error'}`,
+          status: 'error',
+          walletId: wallet.id
+        });
+        throw new Error(`Failed to sign transaction: ${signError instanceof Error ? signError.message : 'Unknown error'}`);
+      }
       
-      // Get the signed XDR (partially, for security)
+      // Get the signed XDR for verification
       const xdr = transaction.toXDR();
-      const shortXdr = xdr.substring(0, 100) + "...";
-      console.log(`Transaction XDR start: ${shortXdr}`);
+      console.log(`Transaction XDR after signing: ${xdr}`);
       
       addLog({
-        message: `Signed transaction (XDR hash: ${transaction.hash().toString('hex').substring(0, 8)}...)`,
+        message: `Signed transaction XDR hash: ${transaction.hash().toString('hex').substring(0, 16)}...`,
+        status: 'info',
+        walletId: wallet.id
+      });
+
+      // Log the full transaction details
+      addLog({
+        message: `Transaction details: fee=${transaction.fee}, operations=${transaction.operations.length}, signatures=${transaction.signatures.length}`,
         status: 'info',
         walletId: wallet.id
       });
@@ -332,6 +365,7 @@ export function useTransaction(
       
     } catch (error) {
       console.error('Transaction error:', error);
+      console.log('Full error details:', error);
       setProcessingBalances(prev => ({ ...prev, [balance.id]: 'failed' }));
       
       addLog({

@@ -69,6 +69,9 @@ export const submitTransaction = async (xdr: string) => {
       body: JSON.stringify({ tx: xdr })
     });
     
+    // Log the raw response details
+    console.log(`Transaction submission response status: ${response.status}`);
+    
     const responseData = await response.json();
     
     // Log full response data for debugging
@@ -82,7 +85,8 @@ export const submitTransaction = async (xdr: string) => {
         // Check for common error types
         const txCode = responseData.extras.result_codes.transaction;
         if (txCode === "tx_bad_auth") {
-          throw new Error("Transaction authentication failed. The signature is invalid. Check your private key.");
+          console.error("tx_bad_auth error details:", responseData);
+          throw new Error("Transaction authentication failed. The signature is invalid. Please verify your private key.");
         } else if (txCode === "tx_bad_seq") {
           throw new Error("Incorrect sequence number. Will retry with updated sequence.");
         } else {
