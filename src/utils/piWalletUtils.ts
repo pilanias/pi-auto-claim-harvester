@@ -44,8 +44,8 @@ export const deriveKeysFromSeedPhrase = async (seedPhrase: string): Promise<{
     const seed = bip39.mnemonicToSeedSync(normalizedSeedPhrase);
     
     // Derive the key using the BIP-44 path for Pi Network
-    // Pass the seed directly, not as a hex string
-    const derived = derivePath(PI_DERIVATION_PATH, seed);
+    // Convert seed to hex string as required by derivePath
+    const derived = derivePath(PI_DERIVATION_PATH, seed.toString('hex'));
     
     if (!derived || !derived.key) {
       throw new Error('Failed to derive key using BIP-44');
