@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { WalletData, ClaimableBalance, TransactionStatus } from '@/lib/types';
 import { fetchSequenceNumber, submitTransaction } from '@/lib/api';
 import { toast } from 'sonner';
-import StellarSdk from 'stellar-sdk';
+import * as StellarSdk from 'stellar-sdk';
 
 // Set up Stellar SDK network configuration to use Pi Network
 const piNetwork = StellarSdk.Networks.PUBLIC; // Using the public network for Pi
