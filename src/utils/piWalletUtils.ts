@@ -1,5 +1,6 @@
 
-import bip39 from 'bip39';
+// Import bip39 correctly - this fixes the "Cannot read properties of undefined (reading 'validateMnemonic')" error
+import * as bip39 from 'bip39';
 import { derivePath } from 'ed25519-hd-key';
 import * as StellarSdk from 'stellar-sdk';
 import { toast } from 'sonner';
@@ -33,6 +34,7 @@ export const deriveKeysFromSeedPhrase = async (seedPhrase: string): Promise<{
       };
     }
     
+    // Using the named import with bip39 as a namespace
     if (!bip39.validateMnemonic(seedPhrase)) {
       throw new Error('Invalid mnemonic phrase. Please check your seed words.');
     }
@@ -47,7 +49,7 @@ export const deriveKeysFromSeedPhrase = async (seedPhrase: string): Promise<{
     const derived = derivePath(PI_DERIVATION_PATH, seedHex);
     
     // Create a Stellar keypair from the derived key
-    // Ensure we handle the Buffer properly by using Buffer.from if needed
+    // Ensure we handle the Buffer properly
     const keypair = StellarSdk.Keypair.fromRawEd25519Seed(Buffer.from(derived.key));
     
     console.log('Derived public key:', keypair.publicKey());
