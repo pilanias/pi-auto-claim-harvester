@@ -19,11 +19,6 @@ export function useClaimableBalances(wallets: WalletData[], addLog: Function) {
       // Look for our wallet's claimant (usually first one)
       const claimant = record.claimants[0];
       
-      // If it has a simple abs_before predicate
-      if (claimant.predicate?.abs_before) {
-        return new Date(claimant.predicate.abs_before);
-      }
-      
       // If it has a "not" predicate (meaning it can only be claimed after a certain time)
       if (claimant.predicate?.not?.abs_before) {
         return new Date(claimant.predicate.not.abs_before);
