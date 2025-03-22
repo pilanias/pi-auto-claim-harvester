@@ -35,7 +35,7 @@ export const fetchSequenceNumber = async (sourceAddress: string) => {
     }
     
     const data = await response.json();
-    // Increment the sequence number by 1 for the next transaction
+    // Increment the sequence number by exactly 1 for the next transaction
     return (BigInt(data.sequence) + 1n).toString();
   } catch (error) {
     console.error("Error fetching sequence number:", error);

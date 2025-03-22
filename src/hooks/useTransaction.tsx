@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { WalletData, ClaimableBalance, TransactionStatus } from '@/lib/types';
 import { fetchSequenceNumber, submitTransaction } from '@/lib/api';
@@ -90,7 +89,7 @@ export function useTransaction(
     });
     
     try {
-      // Fetch sequence number
+      // Fetch sequence number - this now returns exactly sequence+1
       const sequenceNumber = await fetchSequenceNumber(wallet.address);
       sequenceNumbersRef.current[balance.id] = sequenceNumber;
       
