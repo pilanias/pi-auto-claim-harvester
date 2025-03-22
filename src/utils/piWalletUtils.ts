@@ -1,9 +1,14 @@
-
 // Import bip39 correctly - this fixes the "Cannot read properties of undefined (reading 'validateMnemonic')" error
 import * as bip39 from 'bip39';
 import { derivePath } from 'ed25519-hd-key';
 import * as StellarSdk from 'stellar-sdk';
 import { toast } from 'sonner';
+import { Buffer } from 'buffer';
+
+// Polyfill Buffer for browser environments
+if (typeof window !== 'undefined') {
+  window.Buffer = window.Buffer || Buffer;
+}
 
 // Pi uses BIP-44 derivation path for ED25519
 export const PI_DERIVATION_PATH = "m/44'/314159'/0'";
@@ -43,21 +48,15 @@ export const deriveKeysFromSeedPhrase = async (seedPhrase: string): Promise<{
       };
     }
     
-    // First check if this is a valid mnemonic - with more relaxed validation
-    // Skip validation for now as we'll handle errors in the seed generation
-    /*
-    if (!bip39.validateMnemonic(normalizedSeedPhrase)) {
-      throw new Error('Invalid mnemonic phrase. Please check your seed words.');
-    }
-    */
-    
     try {
       // Generate the seed from the mnemonic
       console.log('Attempting to generate seed from normalized phrase:', normalizedSeedPhrase);
-      const seed = await bip39.mnemonicToSeed(normalizedSeedPhrase);
+      
+      // Use the browser-safe mnemonicToSeedSync (since we're adding Buffer polyfill) 
+      const seed = bip39.mnemonicToSeedSync(normalizedSeedPhrase);
       
       // Convert the seed Buffer to a hex string as required by derivePath
-      const seedHex = seed.toString('hex');
+      const seedHex = Buffer.from(seed).toString('hex');
       
       // Derive the key using the hex string
       const derived = derivePath(PI_DERIVATION_PATH, seedHex);
