@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { WalletData, ClaimableBalance, TransactionStatus } from '@/lib/types';
 import { fetchSequenceNumber, submitTransaction } from '@/lib/api';
@@ -88,31 +89,12 @@ export function useTransaction(
     setProcessingBalances(prev => ({ ...prev, [balance.id]: 'fetching_sequence' }));
     
     addLog({
-      message: `Fetching sequence number for wallet ${wallet.address.substring(0, 6)}...`,
+      message: `Preparing to claim ${balance.amount} Pi from wallet ${wallet.address.substring(0, 6)}...`,
       status: 'info',
       walletId: wallet.id
     });
     
     try {
-      // Fetch account details to get the latest sequence number
-      const accountResponse = await server.loadAccount(wallet.address);
-      const currentSequence = accountResponse.sequence;
-      
-      addLog({
-        message: `Raw sequence number from Pi Network: ${currentSequence}`,
-        status: 'info',
-        walletId: wallet.id
-      });
-      
-      // Store the sequence number
-      sequenceNumbersRef.current[balance.id] = currentSequence;
-      
-      addLog({
-        message: `Using sequence number: ${currentSequence}`,
-        status: 'success',
-        walletId: wallet.id
-      });
-      
       // Check if we need to wait for unlock time
       const now = new Date();
       const unlockTime = new Date(balance.unlockTime);
@@ -139,11 +121,11 @@ export function useTransaction(
         constructAndSubmitTransaction(balance, wallet);
       }
     } catch (error) {
-      console.error('Error fetching sequence number:', error);
+      console.error('Error starting process:', error);
       setProcessingBalances(prev => ({ ...prev, [balance.id]: 'failed' }));
       
       addLog({
-        message: `Failed to fetch sequence number: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        message: `Failed to start processing: ${error instanceof Error ? error.message : 'Unknown error'}`,
         status: 'error',
         walletId: wallet.id
       });
@@ -242,8 +224,8 @@ export function useTransaction(
         throw new Error('Invalid private key');
       }
       
-      // Use a higher fee for priority
-      const fee = "300000"; // 300000 stroops (~0.03 Pi) for higher priority
+      // Use a higher fee for priority - increase from previous value
+      const fee = "500000"; // 500000 stroops (~0.05 Pi) for higher priority
       
       addLog({
         message: `Setting transaction fee to ${fee} stroops for higher priority`,
@@ -268,7 +250,7 @@ export function useTransaction(
           amount: balance.amount
         })
       )
-      .setTimeout(30) // Set timeout to 30 seconds
+      .setTimeout(60) // Increase timeout to 60 seconds
       .build();
       
       // Update status to signing
@@ -290,8 +272,14 @@ export function useTransaction(
         walletId: wallet.id
       });
       
-      // Get transaction XDR
+      // Get transaction XDR for logging
       const xdr = transaction.toXDR();
+      
+      addLog({
+        message: `Transaction XDR (first 50 chars): ${xdr.substring(0, 50)}...`,
+        status: 'info',
+        walletId: wallet.id
+      });
       
       // Update status to submitting
       setProcessingBalances(prev => ({ ...prev, [balance.id]: 'submitting' }));
@@ -366,7 +354,7 @@ export function useTransaction(
                 status: 'warning',
                 walletId: wallet.id
               });
-              retryDelay = 2000; // Retry much faster for sequence errors
+              retryDelay = 1000; // Retry much faster for sequence errors (1 second)
             }
             
             // Special handling for tx_bad_auth errors
@@ -376,7 +364,7 @@ export function useTransaction(
                 status: 'error',
                 walletId: wallet.id
               });
-              retryDelay = 10000; // Retry a bit slower for auth errors
+              retryDelay = 5000; // Retry a bit slower for auth errors
             }
           }
         } catch (parseError) {

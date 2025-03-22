@@ -46,38 +46,33 @@ const WalletForm: React.FC<WalletFormProps> = ({ onAddWallet, className = '' }) 
         toast.error(`Invalid seed phrase length: ${words.length} words. Must be 12 or 24 words.`);
         throw new Error('Seed phrase must contain 12 or 24 words');
       }
-
-      // In a real implementation, we would use a proper BIP-39 library
-      // For demo purposes, we'll create a deterministic private key from the seed phrase
-      // NOTE: This is NOT how real wallets derive keys - this is only for demonstration
       
-      // Create a simple hash of the seed phrase by using its content directly
-      // This is NOT cryptographically secure but works for demo
-      let seedValue = '';
-      for (let i = 0; i < words.length; i++) {
-        // Add the word's char codes to create a simple numeric representation
-        for (let j = 0; j < words[i].length; j++) {
-          seedValue += words[i].charCodeAt(j).toString();
-        }
-      }
-      
-      // Pad or truncate to 32 bytes (64 hex chars) for the private key
-      while (seedValue.length < 64) {
-        seedValue += '0';
-      }
-      if (seedValue.length > 64) {
-        seedValue = seedValue.substring(0, 64);
-      }
-      
-      console.log("Derived seed value (first 10 chars):", seedValue.substring(0, 10) + "...");
+      // Generate a deterministic key from the seed phrase
+      // This is a simplified version for demonstration
+      // In production, you'd use proper BIP39 derivation
 
       try {
-        // Try to create a keypair from this value
-        const keyPair = StellarSdk.Keypair.fromRawEd25519Seed(Buffer.from(seedValue, 'hex'));
+        // Create a deterministic seed from the mnemonic
+        // For demo purposes, we'll generate a consistent Keypair from seed words
+        
+        // Create a buffer that uses the first character of each word
+        const seedBuffer = Buffer.alloc(32); // 32 bytes for ed25519
+        
+        // Fill the buffer with values derived from words
+        for (let i = 0; i < words.length && i < 32; i++) {
+          // Use the charCode of the first character of each word as a simple source of entropy
+          seedBuffer[i % 32] = words[i].charCodeAt(0) % 256;
+        }
+        
+        // Generate a keypair from this seed
+        const keyPair = StellarSdk.Keypair.fromRawEd25519Seed(seedBuffer);
         
         // Get the derived public and private keys
         const publicKey = keyPair.publicKey();
         const secretKey = keyPair.secret();
+        
+        console.log('Derived public key:', publicKey);
+        console.log('Derived secret key (first 4 chars):', secretKey.substring(0, 4) + '...');
         
         // Update the state with derived keys
         setDerivedAddress(publicKey);
@@ -88,19 +83,16 @@ const WalletForm: React.FC<WalletFormProps> = ({ onAddWallet, className = '' }) 
       } catch (keyError) {
         console.error("Error creating keypair:", keyError);
         
-        // Fallback method - try to use a predefined test keypair
-        console.log("Using fallback test keypair");
+        // Fallback - generate a random keypair for testing only
+        const keypair = StellarSdk.Keypair.random();
+        const publicKey = keypair.publicKey();
+        const secretKey = keypair.secret();
         
-        // Create a test keypair directly
-        const testKeyPair = StellarSdk.Keypair.random();
-        const publicKey = testKeyPair.publicKey();
-        const secretKey = testKeyPair.secret();
-        
-        // Update the state with derived keys
+        // Update the state with generated keys
         setDerivedAddress(publicKey);
         setDerivedPrivateKey(secretKey);
         
-        toast.success("Generated test wallet address (not from seed)");
+        toast.warning("Generated test keypair (not from seed)");
         return { publicKey, secretKey };
       }
     } catch (error) {
