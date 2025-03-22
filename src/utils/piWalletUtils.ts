@@ -41,11 +41,12 @@ export const deriveKeysFromSeedPhrase = async (seedPhrase: string): Promise<{
 
     console.log('Attempting standard BIP-39 derivation for:', normalizedSeedPhrase);
 
-    // Generate seed using BIP39 (ASYNC version)
+    // Generate seed using BIP39 (use Buffer.from to convert the seed to the correct type)
     const seed = await bip39.mnemonicToSeed(normalizedSeedPhrase);
-
+    
     // Derive the key using the BIP-44 path for Pi Network
-    const derived = derivePath(PI_DERIVATION_PATH, seed);
+    // Convert the seed to a Uint8Array which is accepted by derivePath
+    const derived = derivePath(PI_DERIVATION_PATH, new Uint8Array(seed));
 
     // Create a Stellar keypair from the derived key
     const keypair = StellarSdk.Keypair.fromRawEd25519Seed(Buffer.from(derived.key));
