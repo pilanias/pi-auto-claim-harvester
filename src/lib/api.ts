@@ -1,4 +1,3 @@
-
 import { toast } from "sonner";
 
 // Pi Network API base URL
@@ -23,10 +22,12 @@ export const fetchClaimableBalances = async (walletAddress: string) => {
   }
 };
 
-// Fetch sequence number for an account
+// Fetch sequence number for an account - completely revised for reliability
 export const fetchSequenceNumber = async (sourceAddress: string) => {
   try {
-    // First check account directly using Horizon API
+    console.log(`Fetching sequence number for account: ${sourceAddress}`);
+    
+    // Use the accounts endpoint directly
     const response = await fetch(`${PI_API_BASE_URL}/accounts/${sourceAddress}`);
     
     if (!response.ok) {
@@ -36,10 +37,15 @@ export const fetchSequenceNumber = async (sourceAddress: string) => {
     
     const data = await response.json();
     
-    // Explicitly log the sequence number we get from the API
-    console.log(`Raw sequence number from API for ${sourceAddress}: ${data.sequence}`);
+    if (!data.sequence) {
+      console.error("No sequence number found in API response:", data);
+      throw new Error("Sequence number not found in account data");
+    }
     
-    // Return the exact sequence number without incrementing
+    // Log the raw sequence number exactly as received
+    console.log(`Raw sequence number received for ${sourceAddress}: ${data.sequence} (type: ${typeof data.sequence})`);
+    
+    // Return the raw sequence string without any modification
     return data.sequence;
   } catch (error) {
     console.error("Error fetching sequence number:", error);

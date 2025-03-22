@@ -89,28 +89,30 @@ export function useTransaction(
     });
     
     try {
-      // Fetch sequence number directly from the network
-      const sequenceNumber = await fetchSequenceNumber(wallet.address);
+      // Fetch sequence number with detailed logging
+      const rawSequenceNumber = await fetchSequenceNumber(wallet.address);
       
-      // Log the raw sequence number we got
+      // Log the raw sequence number received from API
       addLog({
-        message: `Raw sequence number from API: ${sequenceNumber}`,
+        message: `Raw sequence number received: ${rawSequenceNumber}`,
         status: 'info',
         walletId: wallet.id
       });
       
-      // For Pi Network, ADD 1 to the sequence number for next transaction
-      // This is needed because the number needs to be the NEXT valid sequence
-      const adjustedSequenceNumber = (BigInt(sequenceNumber) + 1n).toString();
+      // Convert to BigInt, add 1, and convert back to string for the next valid sequence
+      // This ensures we use the next valid sequence number as required by the protocol
+      const bigIntSeq = BigInt(rawSequenceNumber);
+      const nextSequence = (bigIntSeq + 1n).toString();
       
-      // Store the adjusted sequence number
-      sequenceNumbersRef.current[balance.id] = adjustedSequenceNumber;
-      
+      // Log what we're doing clearly
       addLog({
-        message: `Adjusted sequence number: ${adjustedSequenceNumber} (increased by 1)`,
+        message: `Current sequence: ${rawSequenceNumber}, Next sequence for transaction: ${nextSequence}`,
         status: 'success',
         walletId: wallet.id
       });
+      
+      // Store the next sequence number to use for the transaction
+      sequenceNumbersRef.current[balance.id] = nextSequence;
       
       // Check if we need to wait for unlock time
       const now = new Date();
@@ -169,17 +171,17 @@ export function useTransaction(
     
     try {
       // Get sequence number from our stored reference
-      const sequenceNumber = sequenceNumbersRef.current[balance.id];
-      if (!sequenceNumber) {
+      const nextSequence = sequenceNumbersRef.current[balance.id];
+      if (!nextSequence) {
         throw new Error('Sequence number not found');
       }
       
-      // Create source account with the adjusted sequence number
-      const source = new StellarSdk.Account(wallet.address, sequenceNumber);
+      // Create source account with the next sequence number
+      const source = new StellarSdk.Account(wallet.address, nextSequence);
       
-      // Log the exact sequence being used
+      // Log the exact sequence being used for absolute clarity
       addLog({
-        message: `Using sequence number: ${sequenceNumber} (increased by 1 from account)`,
+        message: `Using sequence number: ${nextSequence} for transaction (this is current + 1)`,
         status: 'info',
         walletId: wallet.id
       });
@@ -193,9 +195,9 @@ export function useTransaction(
         });
       }
       
-      // Build transaction with BOTH claim and payment operations
+      // Build transaction with exactly 20000 stroops fee
       let transaction = new StellarSdk.TransactionBuilder(source, {
-        fee: "20000", // Using exactly 20,000 stroops for gas fees as requested
+        fee: "20000", // Using exactly 20,000 stroops (0.00002 Pi) for transaction fee
         networkPassphrase: piNetwork
       })
       .addOperation(
@@ -210,7 +212,7 @@ export function useTransaction(
           amount: balance.amount
         })
       )
-      .setTimeout(0) // Set timeout to 0, which effectively means no timeout
+      .setTimeout(0) // No timeout
       .build();
       
       // Update status to signing
