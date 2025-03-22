@@ -163,21 +163,19 @@ export function useTransaction(
         throw new Error('Sequence number not found');
       }
       
-      // Create source account WITH INCREMENT by 1 here (not in the API)
-      // Use BigInt to safely handle large integers and increment by 1
-      const incrementedSeq = (BigInt(sequenceNumber) + 1n).toString();
-      const source = new StellarSdk.Account(wallet.address, incrementedSeq);
+      // Create source account with no increment (the API sequence number is correct as-is)
+      const source = new StellarSdk.Account(wallet.address, sequenceNumber);
       
       // Log the exact sequence being used
       addLog({
-        message: `Using sequence number: ${incrementedSeq} (increment from ${sequenceNumber})`,
+        message: `Using sequence number: ${sequenceNumber} (no increment)`,
         status: 'info',
         walletId: wallet.id
       });
       
       // Build transaction with BOTH claim and payment operations
       let transaction = new StellarSdk.TransactionBuilder(source, {
-        fee: StellarSdk.BASE_FEE,
+        fee: "200000", // Increased fee to 200000 stroops
         networkPassphrase: piNetwork
       })
       .addOperation(
