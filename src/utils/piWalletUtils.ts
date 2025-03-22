@@ -1,5 +1,5 @@
 
-import * as bip39 from 'bip39';
+import bip39 from 'bip39';
 import { derivePath } from 'ed25519-hd-key';
 import * as StellarSdk from 'stellar-sdk';
 import { toast } from 'sonner';
@@ -47,7 +47,8 @@ export const deriveKeysFromSeedPhrase = async (seedPhrase: string): Promise<{
     const derived = derivePath(PI_DERIVATION_PATH, seedHex);
     
     // Create a Stellar keypair from the derived key
-    const keypair = StellarSdk.Keypair.fromRawEd25519Seed(derived.key);
+    // Ensure we handle the Buffer properly by using Buffer.from if needed
+    const keypair = StellarSdk.Keypair.fromRawEd25519Seed(Buffer.from(derived.key));
     
     console.log('Derived public key:', keypair.publicKey());
     console.log('Derived secret key (first 4 chars):', keypair.secret().substring(0, 4) + '...');
