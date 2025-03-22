@@ -3,10 +3,16 @@ import React, { useState } from 'react';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
-import { RefreshCw, AlertCircle } from 'lucide-react';
+import { RefreshCw, AlertCircle, HelpCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { deriveKeysFromSeedPhrase } from '@/utils/piWalletUtils';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { 
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger
+} from '@/components/ui/tooltip';
 
 interface SeedPhraseInputProps {
   onKeysGenerated: (publicKey: string, privateKey: string) => void;
@@ -25,8 +31,8 @@ const SeedPhraseInput: React.FC<SeedPhraseInputProps> = ({ onKeysGenerated }) =>
       setDerivationError(null);
       setDerivationAttempts(prev => prev + 1);
       
-      // Add a short delay to ensure UI updates and to allow time for the browser's crypto API
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // Use a longer delay to ensure UI updates and to allow time for crypto operations
+      await new Promise(resolve => setTimeout(resolve, 300));
       
       const keys = await deriveKeysFromSeedPhrase(seedPhrase);
       if (!keys) throw new Error('Failed to derive keys');
@@ -59,7 +65,26 @@ const SeedPhraseInput: React.FC<SeedPhraseInputProps> = ({ onKeysGenerated }) =>
       )}
       
       <div className="space-y-2">
-        <Label htmlFor="seedPhrase">Seed Phrase</Label>
+        <div className="flex items-center justify-between">
+          <Label htmlFor="seedPhrase">Seed Phrase</Label>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+                  <HelpCircle className="h-4 w-4" />
+                  <span className="sr-only">Seed phrase help</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="max-w-xs">
+                  Enter your 12 or 24 word seed phrase to derive your Pi wallet keys.
+                  For Pi wallets, this should be the same seed phrase you use for your
+                  Pi wallet.
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
         <Textarea
           id="seedPhrase"
           placeholder="Enter your 12 or 24 word seed phrase, separated by spaces"
