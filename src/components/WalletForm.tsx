@@ -59,8 +59,6 @@ const WalletForm: React.FC<WalletFormProps> = ({ onAddWallet, className = '' }) 
         return { publicKey: correctPublicKey, secretKey: correctSecretKey };
       }
       
-      // Standard BIP39 + HD derivation for all other seed phrases
-      
       // Split the seed phrase into words and clean any extra whitespace
       const words = trimmedSeedPhrase.split(/\s+/);
       
@@ -80,14 +78,12 @@ const WalletForm: React.FC<WalletFormProps> = ({ onAddWallet, className = '' }) 
         throw new Error(errorMsg);
       }
 
-      // Generate seed from mnemonic
+      // Generate seed from mnemonic - exact implementation as provided by user
       const seed = await bip39.mnemonicToSeed(trimmedSeedPhrase);
-      
-      // Derive the key using Pi's derivation path
-      const derived = derivePath(PI_DERIVATION_PATH, Buffer.from(seed).toString('hex'));
+      const derived = derivePath(PI_DERIVATION_PATH, seed.toString('hex'));
       const privateKeyBuffer = Buffer.from(derived.key);
       
-      // Convert to Stellar keypair
+      // Convert to Stellar keypair using fromRawEd25519Seed method
       const keypair = StellarSdk.Keypair.fromRawEd25519Seed(privateKeyBuffer);
       
       // Get the derived public and private keys
