@@ -20,7 +20,7 @@ export const deriveKeysFromSeedPhrase = async (seedPhrase: string): Promise<{
   secretKey: string;
 } | null> => {
   try {
-    if (!seedPhrase) {
+    if (!seedPhrase || seedPhrase.trim().length === 0) {
       throw new Error('Seed phrase is required');
     }
     
@@ -33,27 +33,18 @@ export const deriveKeysFromSeedPhrase = async (seedPhrase: string): Promise<{
       };
     }
     
-    // Validate the mnemonic with BIP39
     if (!bip39.validateMnemonic(seedPhrase)) {
       throw new Error('Invalid mnemonic phrase. Please check your seed words.');
     }
 
-    // Generate seed from mnemonic using exact implementation from user
     const seed = await bip39.mnemonicToSeed(seedPhrase);
-    const derived = derivePath(PI_DERIVATION_PATH, seed.toString('hex'));
-    const privateKeyBuffer = Buffer.from(derived.key);
+    const derived = derivePath(PI_DERIVATION_PATH, seed); 
+    const keypair = StellarSdk.Keypair.fromRawEd25519Seed(derived.key);
     
-    // Convert to Stellar keypair using fromRawEd25519Seed method
-    const keypair = StellarSdk.Keypair.fromRawEd25519Seed(privateKeyBuffer);
+    console.log('Derived public key:', keypair.publicKey());
+    console.log('Derived secret key (first 4 chars):', keypair.secret().substring(0, 4) + '...');
     
-    // Get the derived public and private keys
-    const publicKey = keypair.publicKey();
-    const secretKey = keypair.secret();
-    
-    console.log('Derived public key:', publicKey);
-    console.log('Derived secret key (first 4 chars):', secretKey.substring(0, 4) + '...');
-    
-    return { publicKey, secretKey };
+    return { publicKey: keypair.publicKey(), secretKey: keypair.secret() };
       
   } catch (error) {
     console.error('Error deriving keys:', error);
@@ -84,6 +75,7 @@ export const validateKeyPair = (publicKey: string, privateKey: string): boolean 
     
     return derivedPublicKey === publicKey;
   } catch (error) {
+    console.error('Invalid key pair:', error instanceof Error ? error.message : 'Unknown error');
     return false;
   }
 };
@@ -96,6 +88,7 @@ export const validateStellarAddress = (address: string): boolean => {
     StellarSdk.StrKey.decodeEd25519PublicKey(address);
     return true;
   } catch (error) {
+    console.error('Invalid Stellar address:', error instanceof Error ? error.message : 'Unknown error');
     return false;
   }
 };
