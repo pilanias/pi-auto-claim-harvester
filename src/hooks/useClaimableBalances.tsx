@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback } from 'react';
 import { ClaimableBalance, WalletData } from '@/lib/types';
 import { fetchClaimableBalances } from '@/lib/api';
@@ -8,6 +7,41 @@ export function useClaimableBalances(wallets: WalletData[], addLog: Function) {
   const [claimableBalances, setClaimableBalances] = useState<ClaimableBalance[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+
+  // Helper function to extract the correct unlock time from predicate
+  const extractUnlockTime = (record: any): Date => {
+    // Check if we have claimants
+    if (!record.claimants || record.claimants.length === 0) {
+      return new Date(Date.now() + 1000 * 60 * 60 * 24); // Default to 24 hours from now if no claimants
+    }
+
+    try {
+      // Look for our wallet's claimant (usually first one)
+      const claimant = record.claimants[0];
+      
+      // If it has a simple abs_before predicate
+      if (claimant.predicate?.abs_before) {
+        return new Date(claimant.predicate.abs_before);
+      }
+      
+      // If it has a "not" predicate (meaning it can only be claimed after a certain time)
+      if (claimant.predicate?.not?.abs_before) {
+        return new Date(claimant.predicate.not.abs_before);
+      }
+      
+      // If there's a second claimant with a "not" predicate, check that as well
+      // This is the case in the example provided by the user
+      if (record.claimants.length > 1 && record.claimants[1].predicate?.not?.abs_before) {
+        return new Date(record.claimants[1].predicate.not.abs_before);
+      }
+      
+      // Default fallback if we can't determine
+      return new Date(Date.now() + 1000 * 60 * 60 * 24); // Default to 24 hours from now
+    } catch (error) {
+      console.error("Error extracting unlock time:", error);
+      return new Date(Date.now() + 1000 * 60 * 60 * 24); // Default to 24 hours from now on error
+    }
+  };
 
   // Fetch claimable balances for all wallets
   const fetchAllBalances = useCallback(async () => {
@@ -26,8 +60,8 @@ export function useClaimableBalances(wallets: WalletData[], addLog: Function) {
           
           if (data._embedded?.records?.length > 0) {
             const walletBalances = data._embedded.records.map((record: any) => {
-              // Extract the unlock time from the predicate
-              const unlockTime = new Date(record.claimants[0]?.predicate?.abs_before || Date.now());
+              // Use our helper function to extract the correct unlock time
+              const unlockTime = extractUnlockTime(record);
               
               return {
                 id: record.id,
