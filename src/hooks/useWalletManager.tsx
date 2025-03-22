@@ -129,8 +129,3 @@ export function useWalletManager() {
     maskAddress
   };
 }
-
-// Add UUID dependency
-import { v4 as uuidv4 } from 'uuid';
-<lov-add-dependency>uuid@latest</lov-add-dependency>
-<lov-add-dependency>@types/uuid@latest</lov-add-dependency>
