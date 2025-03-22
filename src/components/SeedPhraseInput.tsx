@@ -32,7 +32,7 @@ const SeedPhraseInput: React.FC<SeedPhraseInputProps> = ({ onKeysGenerated }) =>
       setDerivationAttempts(prev => prev + 1);
       
       // Use a longer delay to ensure UI updates and to allow time for crypto operations
-      await new Promise(resolve => setTimeout(resolve, 300));
+      await new Promise(resolve => setTimeout(resolve, 500));
       
       const keys = await deriveKeysFromSeedPhrase(seedPhrase);
       if (!keys) throw new Error('Failed to derive keys');
