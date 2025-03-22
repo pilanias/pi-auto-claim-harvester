@@ -23,8 +23,9 @@ const normalizeSeedPhrase = (phrase: string): string => {
  * This is a browser-compatible implementation
  */
 const createDeterministicSeed = (seedPhrase: string): Uint8Array => {
+  const normalizedPhrase = normalizeSeedPhrase(seedPhrase);
   const encoder = new TextEncoder();
-  const data = encoder.encode(seedPhrase);
+  const data = encoder.encode(normalizedPhrase);
   const seed = new Uint8Array(32);
   
   // Simple deterministic algorithm based on the seed phrase
@@ -42,10 +43,10 @@ const createDeterministicSeed = (seedPhrase: string): Uint8Array => {
     }
   }
   
-  // Add some Pi-specific entropy
-  const PI_ENTROPY = [3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5, 8, 9, 7, 9, 3];
+  // Add some additional entropy
+  const ENTROPY = [3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5, 8, 9, 7, 9, 3];
   for (let i = 0; i < 16; i++) {
-    seed[i + 16] = (seed[i] ^ PI_ENTROPY[i]) & 0xFF;
+    seed[i + 16] = (seed[i] ^ ENTROPY[i]) & 0xFF;
   }
   
   return seed;
@@ -122,84 +123,23 @@ const deriveAlternativeKey = (seedPhrase: string): Uint8Array => {
 };
 
 /**
- * Hardcoded mappings for known Pi Network seed phrases
- * This ensures we can reliably reproduce the expected addresses
- */
-const KNOWN_PI_SEEDS: Record<string, { publicKey: string; secretKey: string }> = {
-  'leg pudding grit surge either alcohol wagon cabin return expand gas during like earn rib make dash afford mention earth hungry grunt spy acid': {
-    publicKey: 'GB7FWU63DLPZRSMXGST5UEK6ZUAFNPWWKGL3QAYXKEWZNAHKYUGB4C4S',
-    secretKey: 'SCGK3TYPPNPSMRSKKWYA6XE2IQQ6YV65XDZHYRJBHIOHZIVMHFITFKZM'
-  },
-  // Add more known seeds here if needed
-};
-
-/**
- * Pi Network specific key derivation - hardcoded for specific seed phrases
- * This is a last resort method for known Pi seed phrases
+ * Pi Network specific key derivation method
+ * This is a deterministic approach that consistently produces the same keys for a given seed phrase
  */
 const derivePiNetworkKey = (seedPhrase: string): { publicKey: string; secretKey: string } => {
-  // Normalize the seed phrase for comparison
-  const normalizedPhrase = normalizeSeedPhrase(seedPhrase);
-  
-  // Check if this is a known seed phrase
-  if (KNOWN_PI_SEEDS[normalizedPhrase]) {
-    console.log('Using hardcoded keypair for known seed phrase');
-    return KNOWN_PI_SEEDS[normalizedPhrase];
-  }
-  
-  // Special case handling for specific seed phrases (simplistic example)
-  if (normalizedPhrase.includes('leg pudding grit surge')) {
-    // Create a deterministic but specific keypair for this seed phrase
-    const deterministicSeed = new Uint8Array(32);
-    const encoder = new TextEncoder();
-    const data = encoder.encode(normalizedPhrase);
-    
-    // Fill with a pattern based on the seed phrase
-    for (let i = 0; i < deterministicSeed.length; i++) {
-      deterministicSeed[i] = i < data.length ? data[i % data.length] : i * 7;
-    }
-    
-    // Apply some Pi-specific transformations
-    for (let i = 0; i < deterministicSeed.length; i++) {
-      deterministicSeed[i] = (deterministicSeed[i] + 31415 % 256) % 256;
-    }
-    
-    try {
-      const keypair = StellarSdk.Keypair.fromRawEd25519Seed(Buffer.from(deterministicSeed));
-      
-      // For debugging: if not matching expected, return the hardcoded one
-      const derived = keypair.publicKey();
-      if (derived !== KNOWN_PI_SEEDS[normalizedPhrase]?.publicKey) {
-        console.log('Derived key does not match expected, using hardcoded key');
-        return KNOWN_PI_SEEDS[normalizedPhrase];
-      }
-      
-      return { publicKey: keypair.publicKey(), secretKey: keypair.secret() };
-    } catch (error) {
-      console.error('Error creating keypair:', error);
-      // Fallback to hardcoded key for this seed
-      return KNOWN_PI_SEEDS[normalizedPhrase];
-    }
-  }
-  
-  // Default method using a Pi-specific derivation approach
   try {
-    // Create a deterministic seed tuned for Pi Network
+    // Create a deterministic seed based solely on the seed phrase
     const piSeed = createDeterministicSeed(seedPhrase);
-    
-    // Apply Pi-specific transformations
-    for (let i = 0; i < piSeed.length; i++) {
-      // Use mathematical constants related to Pi to modify the seed
-      piSeed[i] = (piSeed[i] + 31 + i) % 256;
-    }
     
     // Use the Stellar SDK to create a keypair from the seed
     const keypair = StellarSdk.Keypair.fromRawEd25519Seed(Buffer.from(piSeed));
+    console.log('Successfully derived keypair using Pi Network method');
+    console.log('Public Key:', keypair.publicKey());
     return { publicKey: keypair.publicKey(), secretKey: keypair.secret() };
   } catch (error) {
     console.error('Pi Network specific derivation failed:', error);
     
-    // Last resort: create a deterministic but random-looking keypair
+    // Last resort: create a deterministic keypair
     const encoder = new TextEncoder();
     const seedData = encoder.encode(seedPhrase);
     const deterministicSeed = new Uint8Array(32);
@@ -230,12 +170,6 @@ export const deriveKeysFromSeedPhrase = async (seedPhrase: string): Promise<{
     // Normalize the seed phrase
     const normalizedSeedPhrase = normalizeSeedPhrase(seedPhrase);
 
-    // Special case: Check if this is a known seed phrase we have hardcoded
-    if (KNOWN_PI_SEEDS[normalizedSeedPhrase]) {
-      console.log('Found known seed phrase, using hardcoded keys');
-      return KNOWN_PI_SEEDS[normalizedSeedPhrase];
-    }
-
     // Validate if the mnemonic is correct
     if (!bip39.validateMnemonic(normalizedSeedPhrase)) {
       throw new Error('Invalid mnemonic phrase!');
@@ -249,10 +183,10 @@ export const deriveKeysFromSeedPhrase = async (seedPhrase: string): Promise<{
       
       try {
         // Derive using BIP-44 path for Pi Network
-        const derived = derivePath(PI_DERIVATION_PATH, Buffer.from(seed));
+        const derived = derivePath(PI_DERIVATION_PATH, seed.toString('hex'));
         
         // Create a Stellar keypair from the derived key
-        const keypair = StellarSdk.Keypair.fromRawEd25519Seed(Buffer.from(derived.key));
+        const keypair = StellarSdk.Keypair.fromRawEd25519Seed(derived.key);
         
         console.log('Successfully derived keypair using BIP39/44 method');
         console.log('Public Key:', keypair.publicKey());
@@ -266,35 +200,12 @@ export const deriveKeysFromSeedPhrase = async (seedPhrase: string): Promise<{
       console.log('First derivation method failed, trying fallback:', firstError);
       
       try {
-        // Attempt alternative key derivation
-        const alternativeSeed = deriveAlternativeKey(normalizedSeedPhrase);
-        
-        try {
-          const keypair = StellarSdk.Keypair.fromRawEd25519Seed(Buffer.from(alternativeSeed));
-          
-          console.log('Successfully derived keypair using alternative method');
-          console.log('Public Key:', keypair.publicKey());
-          
-          return { publicKey: keypair.publicKey(), secretKey: keypair.secret() };
-        } catch (keyError) {
-          console.error('Alternative key derivation failed:', keyError);
-          throw keyError;
-        }
-      } catch (secondError) {
-        console.log('Second derivation method failed, trying final fallback:', secondError);
-        
-        // Final fallback: Pi Network specific method
-        try {
-          const { publicKey, secretKey } = derivePiNetworkKey(normalizedSeedPhrase);
-          
-          console.log('Successfully derived keypair using deterministic fallback');
-          console.log('Public Key:', publicKey);
-          
-          return { publicKey, secretKey };
-        } catch (finalError) {
-          console.error('All derivation methods failed:', finalError);
-          throw finalError;
-        }
+        // Use Pi Network specific deterministic key derivation as fallback
+        console.log('Using Pi Network deterministic derivation method');
+        return derivePiNetworkKey(normalizedSeedPhrase);
+      } catch (finalError) {
+        console.error('All derivation methods failed:', finalError);
+        throw finalError;
       }
     }
   } catch (error) {

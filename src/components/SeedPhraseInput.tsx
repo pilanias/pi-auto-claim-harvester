@@ -25,8 +25,11 @@ const SeedPhraseInput: React.FC<SeedPhraseInputProps> = ({ onKeysGenerated }) =>
   const [derivationError, setDerivationError] = useState<string | null>(null);
   const [derivationAttempts, setDerivationAttempts] = useState(0);
 
-  // Example seed phrase for testing
-  const examplePhrase = 'leg pudding grit surge either alcohol wagon cabin return expand gas during like earn rib make dash afford mention earth hungry grunt spy acid';
+  // Example seed phrases for testing
+  const examplePhrases = [
+    'leg pudding grit surge either alcohol wagon cabin return expand gas during like earn rib make dash afford mention earth hungry grunt spy acid',
+    'strike burger picture ozone ordinary case copper cake just satoshi praise wealth ahead enlist office mail swallow diamond swarm unaware huge room oxygen other'
+  ];
   
   const handleDeriveKeys = async () => {
     try {
@@ -37,7 +40,7 @@ const SeedPhraseInput: React.FC<SeedPhraseInputProps> = ({ onKeysGenerated }) =>
       // Use a longer delay to ensure UI updates and to allow time for crypto operations
       await new Promise(resolve => setTimeout(resolve, 800));
       
-      // Handle the known test phrase specially
+      // Use the entered seed phrase
       let usePhrase = seedPhrase.trim();
       
       const keys = await deriveKeysFromSeedPhrase(usePhrase);
@@ -57,9 +60,9 @@ const SeedPhraseInput: React.FC<SeedPhraseInputProps> = ({ onKeysGenerated }) =>
     }
   };
 
-  // Handle special test phrase
-  const handleTestPhrase = () => {
-    setSeedPhrase(examplePhrase);
+  // Handle test phrase selection
+  const handleTestPhrase = (index: number) => {
+    setSeedPhrase(examplePhrases[index]);
     // Clear derived values when seed phrase changes
     if (derivedAddress) {
       setDerivedAddress('');
@@ -127,15 +130,26 @@ const SeedPhraseInput: React.FC<SeedPhraseInputProps> = ({ onKeysGenerated }) =>
           <p className="text-xs text-muted-foreground">
             Your seed phrase is only stored locally and never transmitted
           </p>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={handleTestPhrase}
-            className="text-xs"
-          >
-            Use Test Phrase
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => handleTestPhrase(0)}
+              className="text-xs"
+            >
+              Test Phrase 1
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => handleTestPhrase(1)}
+              className="text-xs"
+            >
+              Test Phrase 2
+            </Button>
+          </div>
         </div>
       </div>
       
