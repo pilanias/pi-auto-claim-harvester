@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { WalletData, ClaimableBalance, TransactionStatus } from '@/lib/types';
 import { fetchSequenceNumber, submitTransaction } from '@/lib/api';
@@ -149,7 +148,6 @@ export function useTransaction(
     wallet: WalletData, 
     currentSequence: string
   ) => {
-    // Update status to constructing
     setProcessingBalances(prev => ({ ...prev, [balance.id]: 'constructing' }));
     
     addLog({
@@ -159,28 +157,11 @@ export function useTransaction(
     });
     
     try {
-      // Use the exact sequence number from the API
-      // Create Account using the current sequence number without modification
       const sourceAccount = new StellarSdk.Account(wallet.address, currentSequence);
       
-      addLog({
-        message: `Creating transaction with current sequence number: ${currentSequence}`,
-        status: 'info',
-        walletId: wallet.id
-      });
-      
-      // Verify private key starts with 'S'
-      if (!wallet.privateKey.startsWith('S')) {
-        addLog({
-          message: `WARNING: Private key doesn't start with 'S', might not be valid`,
-          status: 'warning', 
-          walletId: wallet.id
-        });
-      }
-      
-      // Build transaction with exactly 20000 stroops fee
+      // Set a higher base fee to ensure transaction goes through (100,000 stroops = 0.01 Pi)
       let transaction = new StellarSdk.TransactionBuilder(sourceAccount, {
-        fee: "20000", // Using exactly 20,000 stroops (0.00002 Pi) for transaction fee
+        fee: "100000",
         networkPassphrase: piNetwork
       })
       .addOperation(
@@ -191,77 +172,38 @@ export function useTransaction(
       .addOperation(
         StellarSdk.Operation.payment({
           destination: wallet.destinationAddress,
-          asset: StellarSdk.Asset.native(), // Pi is the native asset
+          asset: StellarSdk.Asset.native(),
           amount: balance.amount
         })
       )
-      .setTimeout(0) // No timeout
+      .setTimeout(30) // Add a 30-second timeout
       .build();
       
-      // Log the transaction details for debugging
-      const txXDR = transaction.toXDR();
-      console.log(`Transaction XDR before signing: ${txXDR}`);
-      
-      // Update status to signing
       setProcessingBalances(prev => ({ ...prev, [balance.id]: 'signing' }));
       
-      addLog({
-        message: 'Signing transaction with private key',
-        status: 'info',
-        walletId: wallet.id
-      });
-      
-      try {
-        // Clean any whitespace from private key
-        const cleanPrivateKey = wallet.privateKey.trim();
-        
-        // Sign transaction with private key - handle any key related errors
-        const keyPair = StellarSdk.Keypair.fromSecret(cleanPrivateKey);
-        
-        // Log the public key from the private key to verify it matches
-        const derivedPublicKey = keyPair.publicKey();
-        addLog({
-          message: `Public key derived from private key: ${derivedPublicKey}`,
-          status: 'info',
-          walletId: wallet.id
-        });
-        
-        // Check if derived public key matches the wallet address
-        if (derivedPublicKey !== wallet.address) {
-          addLog({
-            message: `WARNING: Derived public key (${derivedPublicKey}) doesn't match wallet address (${wallet.address})!`,
-            status: 'error',
-            walletId: wallet.id
-          });
-          throw new Error('Private key does not match wallet address');
-        }
-        
-        // Sign transaction with the keypair
-        transaction.sign(keyPair);
-        
-        addLog({
-          message: 'Transaction signed successfully with correct private key',
-          status: 'success',
-          walletId: wallet.id
-        });
-      } catch (signError) {
-        throw new Error(`Signing error: ${signError instanceof Error ? signError.message : 'Invalid private key'}`);
+      // Clean private key and verify format
+      const cleanPrivateKey = wallet.privateKey.trim();
+      if (!cleanPrivateKey.startsWith('S')) {
+        throw new Error('Invalid private key format - must start with S');
       }
       
-      // Get transaction XDR
+      // Log the address we're signing with (first 6 chars)
+      const keyPair = StellarSdk.Keypair.fromSecret(cleanPrivateKey);
+      console.log(`Signing with address: ${keyPair.publicKey().substring(0, 6)}...`);
+      
+      // Verify the keypair matches the wallet address
+      if (keyPair.publicKey() !== wallet.address) {
+        throw new Error('Private key does not match wallet address');
+      }
+      
+      // Sign the transaction
+      transaction.sign(keyPair);
+      
+      // Get and log the signed XDR
       const xdr = transaction.toXDR();
+      console.log(`Submitting transaction XDR: ${xdr}`);
       
-      // Log the signed XDR for debugging
-      console.log(`Transaction XDR: ${xdr}`);
-      
-      // Update status to submitting
       setProcessingBalances(prev => ({ ...prev, [balance.id]: 'submitting' }));
-      
-      addLog({
-        message: 'Submitting transaction to network',
-        status: 'info',
-        walletId: wallet.id
-      });
       
       // Submit the transaction
       const result = await submitTransaction(xdr);
@@ -322,9 +264,16 @@ export function useTransaction(
         walletId: wallet.id
       });
       
+      // Add more detailed error logging
+      if (error instanceof Error) {
+        console.log('Full error details:', {
+          message: error.message,
+          stack: error.stack,
+        });
+      }
+      
       toast.error('Transaction failed, will retry in 30 seconds');
       
-      // Retry after a delay
       const timer = setTimeout(() => {
         startProcessingBalance(balance);
       }, 30000);
