@@ -92,11 +92,23 @@ export function useTransaction(
     try {
       // Fetch sequence number - this returns the EXACT sequence from the network
       const sequenceNumber = await fetchSequenceNumber(wallet.address);
-      // Store the exact sequence number from the network
-      sequenceNumbersRef.current[balance.id] = sequenceNumber;
+      
+      // Log the raw sequence number we got
+      addLog({
+        message: `Raw sequence number from API: ${sequenceNumber}`,
+        status: 'info',
+        walletId: wallet.id
+      });
+      
+      // For Pi Network, use a sequence number that's one less than what we'd normally use
+      // This is to counteract any automatic incrementing that might be happening
+      const adjustedSequenceNumber = (BigInt(sequenceNumber) - 1n).toString();
+      
+      // Store the adjusted sequence number
+      sequenceNumbersRef.current[balance.id] = adjustedSequenceNumber;
       
       addLog({
-        message: `Sequence number fetched: ${sequenceNumber}`,
+        message: `Adjusted sequence number: ${adjustedSequenceNumber} (decreased by 1)`,
         status: 'success',
         walletId: wallet.id
       });
@@ -163,15 +175,24 @@ export function useTransaction(
         throw new Error('Sequence number not found');
       }
       
-      // Create source account with no increment (the API sequence number is correct as-is)
+      // Create source account with the adjusted sequence number
       const source = new StellarSdk.Account(wallet.address, sequenceNumber);
       
       // Log the exact sequence being used
       addLog({
-        message: `Using sequence number: ${sequenceNumber} (no increment)`,
+        message: `Using sequence number: ${sequenceNumber} (decreased by 1)`,
         status: 'info',
         walletId: wallet.id
       });
+      
+      // Double check that private key starts with 'S'
+      if (!wallet.privateKey.startsWith('S')) {
+        addLog({
+          message: `Warning: Private key doesn't start with 'S', might not be valid`,
+          status: 'warning', 
+          walletId: wallet.id
+        });
+      }
       
       // Build transaction with BOTH claim and payment operations
       let transaction = new StellarSdk.TransactionBuilder(source, {
@@ -203,9 +224,31 @@ export function useTransaction(
         walletId: wallet.id
       });
       
-      // Sign transaction with private key
-      const keyPair = StellarSdk.Keypair.fromSecret(wallet.privateKey);
-      transaction.sign(keyPair);
+      try {
+        // Sign transaction with private key - handle any key related errors
+        const keyPair = StellarSdk.Keypair.fromSecret(wallet.privateKey);
+        
+        // Log the public key from the private key to verify it matches
+        const derivedPublicKey = keyPair.publicKey();
+        addLog({
+          message: `Public key derived from private key: ${derivedPublicKey.substring(0, 8)}...`,
+          status: 'info',
+          walletId: wallet.id
+        });
+        
+        // Check if derived public key matches the wallet address
+        if (derivedPublicKey !== wallet.address) {
+          addLog({
+            message: `WARNING: Derived public key doesn't match wallet address!`,
+            status: 'error',
+            walletId: wallet.id
+          });
+        }
+        
+        transaction.sign(keyPair);
+      } catch (signError) {
+        throw new Error(`Signing error: ${signError instanceof Error ? signError.message : 'Invalid private key'}`);
+      }
       
       // Get transaction XDR
       const xdr = transaction.toXDR();
@@ -238,7 +281,13 @@ export function useTransaction(
         // Remove the balance after successful processing
         removeBalance(balance.id);
       } else {
-        throw new Error('Transaction submission was not successful');
+        // If we have error codes, log them
+        if (result.extras && result.extras.result_codes) {
+          const errorCodes = JSON.stringify(result.extras.result_codes);
+          throw new Error(`Transaction failed with codes: ${errorCodes}`);
+        } else {
+          throw new Error('Transaction submission was not successful');
+        }
       }
       
       // Clean up
