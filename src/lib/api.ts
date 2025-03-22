@@ -32,7 +32,7 @@ export const fetchSequenceNumber = async (sourceAddress: string) => {
     const response = await fetch(`${PI_API_BASE_URL}/accounts/${sourceAddress}`);
     
     if (!response.ok) {
-      const errorData = await response.json();
+      const errorData = await response.json().catch(() => ({ message: `HTTP error: ${response.status}` }));
       throw new Error(errorData.message || `API error: ${response.status}`);
     }
     
@@ -69,12 +69,17 @@ export const submitTransaction = async (xdr: string) => {
       body: JSON.stringify({ tx: xdr })
     });
     
+    const responseData = await response.json();
+    
+    // Log full response data for debugging
+    console.log('Transaction submission response:', responseData);
+    
     if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.message || `API error: ${response.status}`);
+      console.error("Transaction failed with API error:", responseData);
+      throw new Error(responseData.message || `API error: ${response.status}`);
     }
     
-    return await response.json();
+    return responseData;
   } catch (error) {
     console.error("Error submitting transaction:", error);
     toast.error("Transaction submission failed");

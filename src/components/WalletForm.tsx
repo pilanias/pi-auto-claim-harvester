@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter }
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { Wallet, Key, ArrowRight, Plus, AlertCircle } from 'lucide-react';
+import { Wallet, Key, ArrowRight, Plus, AlertCircle, Check } from 'lucide-react';
 import * as StellarSdk from 'stellar-sdk';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
@@ -21,14 +21,18 @@ const WalletForm: React.FC<WalletFormProps> = ({ onAddWallet, className = '' }) 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [keyError, setKeyError] = useState<string | null>(null);
   const [derivedAddress, setDerivedAddress] = useState<string | null>(null);
+  const [validationStatus, setValidationStatus] = useState<'idle' | 'verifying' | 'verified' | 'error'>('idle');
 
   // Validate private key and derive public key when it changes
   useEffect(() => {
     if (!privateKey) {
       setKeyError(null);
       setDerivedAddress(null);
+      setValidationStatus('idle');
       return;
     }
+
+    setValidationStatus('verifying');
 
     try {
       // Clean private key (trim whitespace)
@@ -38,6 +42,7 @@ const WalletForm: React.FC<WalletFormProps> = ({ onAddWallet, className = '' }) 
       if (!cleanPrivateKey.startsWith('S')) {
         setKeyError('Invalid private key format - must start with S');
         setDerivedAddress(null);
+        setValidationStatus('error');
         return;
       }
 
@@ -47,16 +52,17 @@ const WalletForm: React.FC<WalletFormProps> = ({ onAddWallet, className = '' }) 
       
       setDerivedAddress(publicKey);
       setKeyError(null);
+      setValidationStatus('verified');
       
-      // Check if derived address matches entered address (if an address was entered)
-      if (walletAddress && publicKey !== walletAddress) {
-        setKeyError('Warning: Private key generates a different public address than entered');
-      }
+      // Auto-update the wallet address field to match the derived address
+      setWalletAddress(publicKey);
+
     } catch (error) {
       setKeyError(`Invalid private key: ${error instanceof Error ? error.message : 'Unknown format'}`);
       setDerivedAddress(null);
+      setValidationStatus('error');
     }
-  }, [privateKey, walletAddress]);
+  }, [privateKey]);
 
   const handleAddressChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newAddress = e.target.value;
@@ -65,8 +71,10 @@ const WalletForm: React.FC<WalletFormProps> = ({ onAddWallet, className = '' }) 
     // If we have a derived address, verify it matches the new input
     if (derivedAddress && newAddress && derivedAddress !== newAddress) {
       setKeyError('Warning: Private key generates a different public address than entered');
+      setValidationStatus('error');
     } else if (derivedAddress && newAddress && derivedAddress === newAddress) {
       setKeyError(null);
+      setValidationStatus('verified');
     }
   };
 
@@ -77,33 +85,44 @@ const WalletForm: React.FC<WalletFormProps> = ({ onAddWallet, className = '' }) 
     try {
       // Do a final check before submission
       if (privateKey) {
-        const cleanPrivateKey = privateKey.trim();
-        const keyPair = StellarSdk.Keypair.fromSecret(cleanPrivateKey);
-        const publicKey = keyPair.publicKey();
-        
-        // Auto-correct the address to match the private key
-        if (publicKey !== walletAddress) {
-          setWalletAddress(publicKey);
+        try {
+          const cleanPrivateKey = privateKey.trim();
+          const keyPair = StellarSdk.Keypair.fromSecret(cleanPrivateKey);
+          const publicKey = keyPair.publicKey();
+          
+          // Always use the address derived from the private key for maximum security
+          if (publicKey !== walletAddress) {
+            console.log(`Correcting address to match private key: ${publicKey}`);
+            setWalletAddress(publicKey);
+          }
+          
+          const success = onAddWallet({
+            address: publicKey,
+            privateKey: cleanPrivateKey,
+            destinationAddress: destinationAddress.trim()
+          });
+          
+          if (success) {
+            // Reset form after successful submission
+            setWalletAddress('');
+            setPrivateKey('');
+            setDestinationAddress('');
+            setShowPrivateKey(false);
+            setKeyError(null);
+            setDerivedAddress(null);
+            setValidationStatus('idle');
+          }
+        } catch (error) {
+          setKeyError(`Error with private key: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          setValidationStatus('error');
         }
-      }
-      
-      const success = onAddWallet({
-        address: derivedAddress || walletAddress.trim(),
-        privateKey: privateKey.trim(),
-        destinationAddress: destinationAddress.trim()
-      });
-      
-      if (success) {
-        // Reset form after successful submission
-        setWalletAddress('');
-        setPrivateKey('');
-        setDestinationAddress('');
-        setShowPrivateKey(false);
-        setKeyError(null);
-        setDerivedAddress(null);
+      } else {
+        setKeyError('Private key is required');
+        setValidationStatus('error');
       }
     } catch (error) {
       setKeyError(`Error processing wallet: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setValidationStatus('error');
     } finally {
       setIsSubmitting(false);
     }
@@ -127,7 +146,8 @@ const WalletForm: React.FC<WalletFormProps> = ({ onAddWallet, className = '' }) 
             <Label htmlFor="walletAddress" className="flex items-center gap-2">
               Source Wallet Address
               {derivedAddress && 
-                <span className="text-xs text-green-500">
+                <span className="text-xs text-green-500 flex items-center gap-1">
+                  <Check className="w-3 h-3" />
                   (Auto-detected from private key)
                 </span>
               }
@@ -142,7 +162,8 @@ const WalletForm: React.FC<WalletFormProps> = ({ onAddWallet, className = '' }) 
               readOnly={!!derivedAddress}
             />
             {derivedAddress && 
-              <p className="text-xs text-green-500">
+              <p className="text-xs text-green-500 flex items-center gap-1">
+                <Check className="w-3 h-3" />
                 The address has been automatically detected from your private key
               </p>
             }
@@ -159,15 +180,25 @@ const WalletForm: React.FC<WalletFormProps> = ({ onAddWallet, className = '' }) 
                 {showPrivateKey ? 'Hide' : 'Show'}
               </button>
             </Label>
-            <Input
-              id="privateKey"
-              type={showPrivateKey ? 'text' : 'password'}
-              placeholder="Enter private key starting with S..."
-              value={privateKey}
-              onChange={(e) => setPrivateKey(e.target.value)}
-              required
-              className={`transition duration-200 ${keyError ? 'border-red-300' : ''}`}
-            />
+            <div className="relative">
+              <Input
+                id="privateKey"
+                type={showPrivateKey ? 'text' : 'password'}
+                placeholder="Enter private key starting with S..."
+                value={privateKey}
+                onChange={(e) => setPrivateKey(e.target.value)}
+                required
+                className={`transition duration-200 ${
+                  validationStatus === 'error' ? 'border-red-300' : 
+                  validationStatus === 'verified' ? 'border-green-300' : ''
+                }`}
+              />
+              {validationStatus === 'verified' && (
+                <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                  <Check className="w-4 h-4 text-green-500" />
+                </div>
+              )}
+            </div>
             <p className="text-xs text-muted-foreground mt-1">
               Your key is only stored locally and never transmitted
             </p>
@@ -202,7 +233,7 @@ const WalletForm: React.FC<WalletFormProps> = ({ onAddWallet, className = '' }) 
           <Button 
             type="submit" 
             className="w-full gap-2 group" 
-            disabled={isSubmitting || !!keyError}
+            disabled={isSubmitting || validationStatus === 'error'}
           >
             <Plus className="w-4 h-4 group-hover:scale-110 transition-transform" />
             Add Wallet

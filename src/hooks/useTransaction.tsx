@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { WalletData, ClaimableBalance, TransactionStatus } from '@/lib/types';
 import { fetchSequenceNumber, submitTransaction } from '@/lib/api';
@@ -169,34 +170,60 @@ export function useTransaction(
         throw new Error('Invalid private key format - must start with S');
       }
       
-      // Create keypair from private key
+      // Create keypair from private key - with additional verification
       let keyPair;
       try {
         keyPair = StellarSdk.Keypair.fromSecret(cleanPrivateKey);
         
         // Log the public key we're using (only first 6 chars for security)
-        console.log(`Using keypair with public key: ${keyPair.publicKey().substring(0, 6)}...`);
+        const publicKeyFromSecret = keyPair.publicKey();
+        console.log(`Using keypair with public key: ${publicKeyFromSecret.substring(0, 6)}...`);
         addLog({
-          message: `Using signing key starting with: ${keyPair.publicKey().substring(0, 6)}...`,
+          message: `Using signing key starting with: ${publicKeyFromSecret.substring(0, 6)}...`,
           status: 'info',
           walletId: wallet.id
         });
         
         // Validate that keypair matches the wallet address
-        if (keyPair.publicKey() !== wallet.address) {
+        if (publicKeyFromSecret !== wallet.address) {
+          addLog({
+            message: `ERROR: Private key generates address ${publicKeyFromSecret.substring(0, 6)}... but wallet address is ${wallet.address.substring(0, 6)}...`,
+            status: 'error',
+            walletId: wallet.id
+          });
           throw new Error('Private key does not match wallet address');
         }
+        
+        addLog({
+          message: `✓ Private key verification successful`,
+          status: 'success',
+          walletId: wallet.id
+        });
       } catch (err) {
         console.error('Error creating keypair:', err);
         throw new Error(`Invalid private key: ${err instanceof Error ? err.message : 'Unknown error'}`);
       }
       
+      // Double-check wallet address and transaction params
+      addLog({
+        message: `Preparing transaction from ${wallet.address.substring(0, 8)}... with sequence ${currentSequence}`,
+        status: 'info',
+        walletId: wallet.id
+      });
+      
       // Create source account
       const sourceAccount = new StellarSdk.Account(wallet.address, currentSequence);
       
-      // Set a higher base fee to ensure transaction goes through (200,000 stroops = 0.02 Pi)
+      // Debug log for source account
+      addLog({
+        message: `Source account created with address: ${sourceAccount.accountId().substring(0, 8)}...`,
+        status: 'info',
+        walletId: wallet.id
+      });
+      
+      // Set an even higher base fee to ensure transaction goes through (300,000 stroops = 0.03 Pi)
       let transaction = new StellarSdk.TransactionBuilder(sourceAccount, {
-        fee: "200000", // Increased fee to address tx_insufficient_fee
+        fee: "300000", // Increased fee further to address tx_insufficient_fee
         networkPassphrase: piNetwork
       })
       .addOperation(
@@ -211,8 +238,15 @@ export function useTransaction(
           amount: balance.amount
         })
       )
-      .setTimeout(60) // Increased timeout to 60 seconds
+      .setTimeout(180) // Increased timeout to 180 seconds
       .build();
+      
+      // Log balance ID for verification
+      addLog({
+        message: `Claiming balance ID: ${balance.id.substring(0, 15)}...`,
+        status: 'info',
+        walletId: wallet.id
+      });
       
       setProcessingBalances(prev => ({ ...prev, [balance.id]: 'signing' }));
       addLog({
@@ -230,6 +264,13 @@ export function useTransaction(
       
       addLog({
         message: `Signed transaction ready for submission`,
+        status: 'info',
+        walletId: wallet.id
+      });
+      
+      // Additional logging for debugging
+      addLog({
+        message: `Transaction hash: ${transaction.hash().toString('hex').substring(0, 10)}...`,
         status: 'info',
         walletId: wallet.id
       });
@@ -269,9 +310,18 @@ export function useTransaction(
             walletId: wallet.id
           });
           
+          // Enhanced error information
           if (result.extras.envelope_xdr) {
             addLog({
               message: `Envelope XDR: ${result.extras.envelope_xdr.substring(0, 30)}...`,
+              status: 'info',
+              walletId: wallet.id
+            });
+          }
+          
+          if (result.extras.result_xdr) {
+            addLog({
+              message: `Result XDR: ${result.extras.result_xdr.substring(0, 30)}...`,
               status: 'info',
               walletId: wallet.id
             });
