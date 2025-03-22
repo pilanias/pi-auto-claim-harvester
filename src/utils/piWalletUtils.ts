@@ -19,144 +19,7 @@ const normalizeSeedPhrase = (phrase: string): string => {
 };
 
 /**
- * Creates a deterministic seed from a mnemonic phrase
- * This is a browser-compatible implementation
- */
-const createDeterministicSeed = (seedPhrase: string): Uint8Array => {
-  const normalizedPhrase = normalizeSeedPhrase(seedPhrase);
-  const encoder = new TextEncoder();
-  const data = encoder.encode(normalizedPhrase);
-  const seed = new Uint8Array(32);
-  
-  // Simple deterministic algorithm based on the seed phrase
-  let h1 = 0x6a09e667;
-  let h2 = 0xbb67ae85;
-  
-  for (let i = 0; i < data.length; i++) {
-    const val = data[i];
-    h1 = ((h1 << 7) | (h1 >>> 25)) ^ val ^ (h1 * 23);
-    h2 = ((h2 << 11) | (h2 >>> 21)) ^ val ^ (h2 * 31);
-    
-    // Fill the seed with derived values
-    if (i < 32) {
-      seed[i % 32] = (h1 ^ h2) & 0xFF;
-    }
-  }
-  
-  // Add some additional entropy
-  const ENTROPY = [3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5, 8, 9, 7, 9, 3];
-  for (let i = 0; i < 16; i++) {
-    seed[i + 16] = (seed[i] ^ ENTROPY[i]) & 0xFF;
-  }
-  
-  return seed;
-};
-
-/**
- * Simple browser-compatible SHA-256 like hashing function
- */
-const simpleSHA256 = (input: string): Uint8Array => {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(input);
-  const result = new Uint8Array(32);
-  
-  // Simple hash mixing function
-  let h1 = 0x6a09e667;
-  let h2 = 0xbb67ae85;
-  let h3 = 0x3c6ef372;
-  let h4 = 0xa54ff53a;
-  let h5 = 0x510e527f;
-  let h6 = 0x9b05688c;
-  let h7 = 0x1f83d9ab;
-  let h8 = 0x5be0cd19;
-  
-  // Process data in chunks
-  for (let i = 0; i < data.length; i++) {
-    const val = data[i];
-    h1 = ((h1 << 7) | (h1 >>> 25)) ^ h2 ^ val;
-    h2 = ((h2 << 11) | (h2 >>> 21)) ^ h3 ^ val;
-    h3 = ((h3 << 15) | (h3 >>> 17)) ^ h4 ^ val;
-    h4 = ((h4 << 5) | (h4 >>> 27)) ^ h5 ^ val;
-    h5 = ((h5 << 12) | (h5 >>> 20)) ^ h6 ^ val;
-    h6 = ((h6 << 9) | (h6 >>> 23)) ^ h7 ^ val;
-    h7 = ((h7 << 8) | (h7 >>> 24)) ^ h8 ^ val;
-    h8 = ((h8 << 13) | (h8 >>> 19)) ^ h1 ^ val;
-  }
-  
-  // Convert hash values to bytes
-  const writeInt = (value: number, offset: number) => {
-    result[offset] = (value >>> 24) & 0xff;
-    result[offset + 1] = (value >>> 16) & 0xff;
-    result[offset + 2] = (value >>> 8) & 0xff;
-    result[offset + 3] = value & 0xff;
-  };
-  
-  writeInt(h1, 0);
-  writeInt(h2, 4);
-  writeInt(h3, 8);
-  writeInt(h4, 12);
-  writeInt(h5, 16);
-  writeInt(h6, 20);
-  writeInt(h7, 24);
-  writeInt(h8, 28);
-  
-  return result;
-};
-
-/**
- * Alternative method to derive a key using browser compatible methods
- */
-const deriveAlternativeKey = (seedPhrase: string): Uint8Array => {
-  try {
-    // Use built-in crypto if available
-    if (typeof crypto !== 'undefined' && crypto.subtle && crypto.subtle.digest) {
-      // Use our simple SHA-256 while waiting for the async result
-      return simpleSHA256(seedPhrase); 
-    } else {
-      // Use our simple SHA-256 implementation as fallback
-      return simpleSHA256(seedPhrase);
-    }
-  } catch (error) {
-    console.error('Web Crypto API failed, using fallback:', error);
-    return simpleSHA256(seedPhrase);
-  }
-};
-
-/**
- * Pi Network specific key derivation method
- * This is a deterministic approach that consistently produces the same keys for a given seed phrase
- */
-const derivePiNetworkKey = (seedPhrase: string): { publicKey: string; secretKey: string } => {
-  try {
-    // Create a deterministic seed based solely on the seed phrase
-    const piSeed = createDeterministicSeed(seedPhrase);
-    
-    // Use the Stellar SDK to create a keypair from the seed
-    const keypair = StellarSdk.Keypair.fromRawEd25519Seed(Buffer.from(piSeed));
-    console.log('Successfully derived keypair using Pi Network method');
-    console.log('Public Key:', keypair.publicKey());
-    return { publicKey: keypair.publicKey(), secretKey: keypair.secret() };
-  } catch (error) {
-    console.error('Pi Network specific derivation failed:', error);
-    
-    // Last resort: create a deterministic keypair
-    const encoder = new TextEncoder();
-    const seedData = encoder.encode(seedPhrase);
-    const deterministicSeed = new Uint8Array(32);
-    
-    // Very simple deterministic algorithm
-    for (let i = 0; i < seedData.length && i < 32; i++) {
-      deterministicSeed[i % 32] = (deterministicSeed[i % 32] + seedData[i]) % 256;
-    }
-    
-    const keypair = StellarSdk.Keypair.fromRawEd25519Seed(Buffer.from(deterministicSeed));
-    return { publicKey: keypair.publicKey(), secretKey: keypair.secret() };
-  }
-};
-
-/**
- * Derives a Pi Network keypair from a BIP-39 mnemonic using multiple methods
- * Includes various fallback mechanisms for browser compatibility
+ * Derives a Pi Network keypair from a BIP-39 mnemonic using BIP-44 derivation
  */
 export const deriveKeysFromSeedPhrase = async (seedPhrase: string): Promise<{
   publicKey: string;
@@ -177,40 +40,24 @@ export const deriveKeysFromSeedPhrase = async (seedPhrase: string): Promise<{
 
     console.log('Attempting standard BIP-39 derivation for:', normalizedSeedPhrase);
 
-    try {
-      // Standard BIP-39 approach
-      const seed = await bip39.mnemonicToSeed(normalizedSeedPhrase);
-      
-      try {
-        // Derive using BIP-44 path for Pi Network
-        const derived = derivePath(PI_DERIVATION_PATH, seed.toString('hex'));
-        
-        // Create a Stellar keypair from the derived key
-        const keypair = StellarSdk.Keypair.fromRawEd25519Seed(derived.key);
-        
-        console.log('Successfully derived keypair using BIP39/44 method');
-        console.log('Public Key:', keypair.publicKey());
-        
-        return { publicKey: keypair.publicKey(), secretKey: keypair.secret() };
-      } catch (innerError) {
-        console.error('BIP-44 derivation failed:', innerError);
-        throw innerError;
-      }
-    } catch (firstError) {
-      console.log('First derivation method failed, trying fallback:', firstError);
-      
-      try {
-        // Use Pi Network specific deterministic key derivation as fallback
-        console.log('Using Pi Network deterministic derivation method');
-        return derivePiNetworkKey(normalizedSeedPhrase);
-      } catch (finalError) {
-        console.error('All derivation methods failed:', finalError);
-        throw finalError;
-      }
-    }
+    // Generate seed using BIP39 (ASYNC version)
+    const seed = await bip39.mnemonicToSeed(normalizedSeedPhrase);
+
+    // Derive the key using the BIP-44 path for Pi Network
+    const derived = derivePath(PI_DERIVATION_PATH, seed.toString('hex'));
+
+    // Create a Stellar keypair from the derived key
+    const keypair = StellarSdk.Keypair.fromRawEd25519Seed(Buffer.from(derived.key));
+
+    console.log('Successfully derived keypair');
+    console.log('Public Key:', keypair.publicKey());
+    console.log('Secret Key:', keypair.secret().substring(0, 4) + '...');
+
+    return { publicKey: keypair.publicKey(), secretKey: keypair.secret() };
+
   } catch (error) {
     console.error('Error deriving keys:', error);
-    throw error instanceof Error ? error : new Error('Unknown error in key derivation');
+    throw new Error(error instanceof Error ? error.message : 'Unknown error');
   }
 };
 
