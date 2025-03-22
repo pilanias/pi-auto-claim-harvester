@@ -26,7 +26,7 @@ export const fetchClaimableBalances = async (walletAddress: string) => {
 // Fetch sequence number for an account
 export const fetchSequenceNumber = async (sourceAddress: string) => {
   try {
-    // Make an actual API call to get the account information
+    // First check account directly using Horizon API
     const response = await fetch(`${PI_API_BASE_URL}/accounts/${sourceAddress}`);
     
     if (!response.ok) {
@@ -35,6 +35,10 @@ export const fetchSequenceNumber = async (sourceAddress: string) => {
     }
     
     const data = await response.json();
+    
+    // Explicitly log the sequence number we get from the API
+    console.log(`Raw sequence number from API for ${sourceAddress}: ${data.sequence}`);
+    
     // Return the exact sequence number without incrementing
     return data.sequence;
   } catch (error) {

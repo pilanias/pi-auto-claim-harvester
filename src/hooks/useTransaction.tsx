@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { WalletData, ClaimableBalance, TransactionStatus } from '@/lib/types';
 import { fetchSequenceNumber, submitTransaction } from '@/lib/api';
@@ -90,7 +89,7 @@ export function useTransaction(
     });
     
     try {
-      // Fetch sequence number - this returns the EXACT sequence from the network
+      // Fetch sequence number directly from the network
       const sequenceNumber = await fetchSequenceNumber(wallet.address);
       
       // Log the raw sequence number we got
@@ -100,8 +99,8 @@ export function useTransaction(
         walletId: wallet.id
       });
       
-      // For Pi Network, ADD 1 to the sequence number
-      // This should help with the transaction authentication issues
+      // For Pi Network, ADD 1 to the sequence number for next transaction
+      // This is needed because the number needs to be the NEXT valid sequence
       const adjustedSequenceNumber = (BigInt(sequenceNumber) + 1n).toString();
       
       // Store the adjusted sequence number
@@ -180,7 +179,7 @@ export function useTransaction(
       
       // Log the exact sequence being used
       addLog({
-        message: `Using sequence number: ${sequenceNumber} (increased by 1)`,
+        message: `Using sequence number: ${sequenceNumber} (increased by 1 from account)`,
         status: 'info',
         walletId: wallet.id
       });
@@ -196,7 +195,7 @@ export function useTransaction(
       
       // Build transaction with BOTH claim and payment operations
       let transaction = new StellarSdk.TransactionBuilder(source, {
-        fee: "20000", // Using 20,000 stroops for gas fees as requested
+        fee: "20000", // Using exactly 20,000 stroops for gas fees as requested
         networkPassphrase: piNetwork
       })
       .addOperation(
@@ -211,7 +210,6 @@ export function useTransaction(
           amount: balance.amount
         })
       )
-      // No memo needed
       .setTimeout(0) // Set timeout to 0, which effectively means no timeout
       .build();
       
