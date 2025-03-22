@@ -25,6 +25,9 @@ const SeedPhraseInput: React.FC<SeedPhraseInputProps> = ({ onKeysGenerated }) =>
   const [derivationError, setDerivationError] = useState<string | null>(null);
   const [derivationAttempts, setDerivationAttempts] = useState(0);
 
+  // Example seed phrase for testing
+  const examplePhrase = 'leg pudding grit surge either alcohol wagon cabin return expand gas during like earn rib make dash afford mention earth hungry grunt spy acid';
+  
   const handleDeriveKeys = async () => {
     try {
       setIsDerivingKeys(true);
@@ -32,9 +35,12 @@ const SeedPhraseInput: React.FC<SeedPhraseInputProps> = ({ onKeysGenerated }) =>
       setDerivationAttempts(prev => prev + 1);
       
       // Use a longer delay to ensure UI updates and to allow time for crypto operations
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise(resolve => setTimeout(resolve, 800));
       
-      const keys = await deriveKeysFromSeedPhrase(seedPhrase);
+      // Handle the known test phrase specially
+      let usePhrase = seedPhrase.trim();
+      
+      const keys = await deriveKeysFromSeedPhrase(usePhrase);
       if (!keys) throw new Error('Failed to derive keys');
       
       setDerivedAddress(keys.publicKey);
@@ -48,6 +54,19 @@ const SeedPhraseInput: React.FC<SeedPhraseInputProps> = ({ onKeysGenerated }) =>
       setDerivationError(errorMessage);
     } finally {
       setIsDerivingKeys(false);
+    }
+  };
+
+  // Handle special test phrase
+  const handleTestPhrase = () => {
+    setSeedPhrase(examplePhrase);
+    // Clear derived values when seed phrase changes
+    if (derivedAddress) {
+      setDerivedAddress('');
+      onKeysGenerated('', '');
+    }
+    if (derivationError) {
+      setDerivationError(null);
     }
   };
 
@@ -104,9 +123,20 @@ const SeedPhraseInput: React.FC<SeedPhraseInputProps> = ({ onKeysGenerated }) =>
           required
           className={`transition duration-200 ${derivationError ? 'border-destructive' : ''}`}
         />
-        <p className="text-xs text-muted-foreground mt-1">
-          Your seed phrase is only stored locally and never transmitted
-        </p>
+        <div className="flex justify-between items-center">
+          <p className="text-xs text-muted-foreground">
+            Your seed phrase is only stored locally and never transmitted
+          </p>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={handleTestPhrase}
+            className="text-xs"
+          >
+            Use Test Phrase
+          </Button>
+        </div>
       </div>
       
       <div className="flex justify-end">
