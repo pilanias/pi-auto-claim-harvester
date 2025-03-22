@@ -88,10 +88,9 @@ export function useTransaction(
     });
     
     try {
-      // Fetch sequence number directly from the API, don't modify it
+      // Fetch sequence number directly from the API
       const currentSequence = await fetchSequenceNumber(wallet.address);
       
-      // Log the current sequence number exactly as received
       addLog({
         message: `Current sequence from API: ${currentSequence}`,
         status: 'info',
@@ -157,11 +156,47 @@ export function useTransaction(
     });
     
     try {
+      // Validate the private key first
+      if (!wallet.privateKey) {
+        throw new Error('Private key is required');
+      }
+      
+      // Clean private key (trim whitespace)
+      const cleanPrivateKey = wallet.privateKey.trim();
+      
+      // Validate private key format
+      if (!cleanPrivateKey.startsWith('S')) {
+        throw new Error('Invalid private key format - must start with S');
+      }
+      
+      // Create keypair from private key
+      let keyPair;
+      try {
+        keyPair = StellarSdk.Keypair.fromSecret(cleanPrivateKey);
+        
+        // Log the public key we're using (only first 6 chars for security)
+        console.log(`Using keypair with public key: ${keyPair.publicKey().substring(0, 6)}...`);
+        addLog({
+          message: `Using signing key starting with: ${keyPair.publicKey().substring(0, 6)}...`,
+          status: 'info',
+          walletId: wallet.id
+        });
+        
+        // Validate that keypair matches the wallet address
+        if (keyPair.publicKey() !== wallet.address) {
+          throw new Error('Private key does not match wallet address');
+        }
+      } catch (err) {
+        console.error('Error creating keypair:', err);
+        throw new Error(`Invalid private key: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      }
+      
+      // Create source account
       const sourceAccount = new StellarSdk.Account(wallet.address, currentSequence);
       
-      // Set a higher base fee to ensure transaction goes through (100,000 stroops = 0.01 Pi)
+      // Set a higher base fee to ensure transaction goes through (200,000 stroops = 0.02 Pi)
       let transaction = new StellarSdk.TransactionBuilder(sourceAccount, {
-        fee: "100000",
+        fee: "200000", // Increased fee to address tx_insufficient_fee
         networkPassphrase: piNetwork
       })
       .addOperation(
@@ -176,34 +211,35 @@ export function useTransaction(
           amount: balance.amount
         })
       )
-      .setTimeout(30) // Add a 30-second timeout
+      .setTimeout(60) // Increased timeout to 60 seconds
       .build();
       
       setProcessingBalances(prev => ({ ...prev, [balance.id]: 'signing' }));
+      addLog({
+        message: `Signing transaction...`,
+        status: 'info',
+        walletId: wallet.id
+      });
       
-      // Clean private key and verify format
-      const cleanPrivateKey = wallet.privateKey.trim();
-      if (!cleanPrivateKey.startsWith('S')) {
-        throw new Error('Invalid private key format - must start with S');
-      }
-      
-      // Log the address we're signing with (first 6 chars)
-      const keyPair = StellarSdk.Keypair.fromSecret(cleanPrivateKey);
-      console.log(`Signing with address: ${keyPair.publicKey().substring(0, 6)}...`);
-      
-      // Verify the keypair matches the wallet address
-      if (keyPair.publicKey() !== wallet.address) {
-        throw new Error('Private key does not match wallet address');
-      }
-      
-      // Sign the transaction
+      // Sign the transaction with our validated keypair
       transaction.sign(keyPair);
       
-      // Get and log the signed XDR
+      // Get and log the signed XDR (partially, for security)
       const xdr = transaction.toXDR();
-      console.log(`Submitting transaction XDR: ${xdr}`);
+      console.log(`Submitting transaction XDR: ${xdr.substring(0, 100)}...`);
+      
+      addLog({
+        message: `Signed transaction ready for submission`,
+        status: 'info',
+        walletId: wallet.id
+      });
       
       setProcessingBalances(prev => ({ ...prev, [balance.id]: 'submitting' }));
+      addLog({
+        message: `Submitting transaction to network...`,
+        status: 'info',
+        walletId: wallet.id
+      });
       
       // Submit the transaction
       const result = await submitTransaction(xdr);
@@ -280,7 +316,7 @@ export function useTransaction(
       
       setActiveTimers(prev => ({ ...prev, [balance.id]: timer }));
     }
-  }, [addLog, removeBalance]);
+  }, [addLog, removeBalance, startProcessingBalance]);
 
   // Helper function to format time remaining
   const formatTimeRemaining = (milliseconds: number): string => {
