@@ -75,14 +75,28 @@ export const submitTransaction = async (xdr: string) => {
     console.log('Transaction submission response:', responseData);
     
     if (!response.ok) {
-      console.error("Transaction failed with API error:", responseData);
-      throw new Error(responseData.message || `API error: ${response.status}`);
+      // Enhanced error handling with more details
+      if (responseData.extras && responseData.extras.result_codes) {
+        console.error("Transaction failed with API result codes:", responseData.extras.result_codes);
+        
+        // Check for common error types
+        const txCode = responseData.extras.result_codes.transaction;
+        if (txCode === "tx_bad_auth") {
+          throw new Error("Transaction authentication failed. The signature is invalid. Check your private key.");
+        } else if (txCode === "tx_bad_seq") {
+          throw new Error("Incorrect sequence number. Will retry with updated sequence.");
+        } else {
+          throw new Error(`API error: ${txCode || JSON.stringify(responseData.extras.result_codes)}`);
+        }
+      }
+      
+      throw new Error(responseData.detail || responseData.message || `API error: ${response.status}`);
     }
     
     return responseData;
   } catch (error) {
     console.error("Error submitting transaction:", error);
-    toast.error("Transaction submission failed");
+    toast.error(`Transaction failed: ${error instanceof Error ? error.message : "Unknown error"}`);
     throw error;
   }
 };

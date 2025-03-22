@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { WalletData, ClaimableBalance, TransactionStatus } from '@/lib/types';
 import { fetchSequenceNumber, submitTransaction } from '@/lib/api';
 import { toast } from 'sonner';
@@ -204,15 +204,19 @@ export function useTransaction(
         throw new Error(`Invalid private key: ${err instanceof Error ? err.message : 'Unknown error'}`);
       }
       
-      // Double-check wallet address and transaction params
+      // IMPORTANT: Convert the sequence to the correct format expected by StellarSdk
+      // This is critical as StellarSdk expects a string but treats it specially
+      // A common cause of tx_bad_auth is incorrect sequence format
+      const sequenceAsString = currentSequence.toString();
+      
       addLog({
-        message: `Preparing transaction from ${wallet.address.substring(0, 8)}... with sequence ${currentSequence}`,
+        message: `Using sequence string: ${sequenceAsString}`,
         status: 'info',
         walletId: wallet.id
       });
       
-      // Create source account
-      const sourceAccount = new StellarSdk.Account(wallet.address, currentSequence);
+      // Create the source account with the proper sequence format
+      const sourceAccount = new StellarSdk.Account(wallet.address, sequenceAsString);
       
       // Debug log for source account
       addLog({
@@ -221,25 +225,34 @@ export function useTransaction(
         walletId: wallet.id
       });
       
-      // Set an even higher base fee to ensure transaction goes through (300,000 stroops = 0.03 Pi)
-      let transaction = new StellarSdk.TransactionBuilder(sourceAccount, {
-        fee: "300000", // Increased fee further to address tx_insufficient_fee
+      // Set an even higher base fee to ensure transaction goes through (500,000 stroops = 0.05 Pi)
+      // This is important for priority and to avoid tx_insufficient_fee errors
+      let transactionBuilder = new StellarSdk.TransactionBuilder(sourceAccount, {
+        fee: "500000", // Increased fee further to ensure high priority
         networkPassphrase: piNetwork
-      })
-      .addOperation(
+      });
+      
+      // Add the claim operation first
+      transactionBuilder = transactionBuilder.addOperation(
         StellarSdk.Operation.claimClaimableBalance({
           balanceId: balance.id
         })
-      )
-      .addOperation(
+      );
+      
+      // Then add the payment operation to transfer the funds
+      transactionBuilder = transactionBuilder.addOperation(
         StellarSdk.Operation.payment({
           destination: wallet.destinationAddress,
           asset: StellarSdk.Asset.native(),
           amount: balance.amount
         })
-      )
-      .setTimeout(180) // Increased timeout to 180 seconds
-      .build();
+      );
+      
+      // Set a high timeout to accommodate network delays
+      transactionBuilder = transactionBuilder.setTimeout(300); // 5 minutes
+      
+      // Build the transaction
+      const transaction = transactionBuilder.build();
       
       // Log balance ID for verification
       addLog({
@@ -258,19 +271,13 @@ export function useTransaction(
       // Sign the transaction with our validated keypair
       transaction.sign(keyPair);
       
-      // Get and log the signed XDR (partially, for security)
+      // Get the signed XDR (partially, for security)
       const xdr = transaction.toXDR();
-      console.log(`Submitting transaction XDR: ${xdr.substring(0, 100)}...`);
+      const shortXdr = xdr.substring(0, 100) + "...";
+      console.log(`Transaction XDR start: ${shortXdr}`);
       
       addLog({
-        message: `Signed transaction ready for submission`,
-        status: 'info',
-        walletId: wallet.id
-      });
-      
-      // Additional logging for debugging
-      addLog({
-        message: `Transaction hash: ${transaction.hash().toString('hex').substring(0, 10)}...`,
+        message: `Signed transaction (XDR hash: ${transaction.hash().toString('hex').substring(0, 8)}...)`,
         status: 'info',
         walletId: wallet.id
       });
@@ -310,23 +317,6 @@ export function useTransaction(
             walletId: wallet.id
           });
           
-          // Enhanced error information
-          if (result.extras.envelope_xdr) {
-            addLog({
-              message: `Envelope XDR: ${result.extras.envelope_xdr.substring(0, 30)}...`,
-              status: 'info',
-              walletId: wallet.id
-            });
-          }
-          
-          if (result.extras.result_xdr) {
-            addLog({
-              message: `Result XDR: ${result.extras.result_xdr.substring(0, 30)}...`,
-              status: 'info',
-              walletId: wallet.id
-            });
-          }
-          
           throw new Error(`Transaction failed with codes: ${errorCodes}`);
         } else {
           throw new Error('Transaction submission was not successful');
@@ -350,12 +340,26 @@ export function useTransaction(
         walletId: wallet.id
       });
       
-      // Add more detailed error logging
+      // Additional handling for specific error types
       if (error instanceof Error) {
-        console.log('Full error details:', {
-          message: error.message,
-          stack: error.stack,
-        });
+        const errorMessage = error.message;
+        
+        // If it's a sequence number issue, fetch a new sequence and retry
+        if (errorMessage.includes('tx_bad_seq') || errorMessage.includes('sequence')) {
+          addLog({
+            message: 'Sequence number issue detected, fetching fresh sequence...',
+            status: 'info', 
+            walletId: wallet.id
+          });
+          
+          // Start over with a fresh sequence number
+          const timer = setTimeout(() => {
+            startProcessingBalance(balance);
+          }, 5000); // Shorter retry for sequence issues
+          
+          setActiveTimers(prev => ({ ...prev, [balance.id]: timer }));
+          return;
+        }
       }
       
       toast.error('Transaction failed, will retry in 30 seconds');
