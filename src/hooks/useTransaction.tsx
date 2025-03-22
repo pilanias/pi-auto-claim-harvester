@@ -100,15 +100,15 @@ export function useTransaction(
         walletId: wallet.id
       });
       
-      // For Pi Network, use a sequence number that's two less than what we'd normally use
+      // For Pi Network, ADD 1 to the sequence number
       // This should help with the transaction authentication issues
-      const adjustedSequenceNumber = (BigInt(sequenceNumber) - 2n).toString();
+      const adjustedSequenceNumber = (BigInt(sequenceNumber) + 1n).toString();
       
       // Store the adjusted sequence number
       sequenceNumbersRef.current[balance.id] = adjustedSequenceNumber;
       
       addLog({
-        message: `Adjusted sequence number: ${adjustedSequenceNumber} (decreased by 2)`,
+        message: `Adjusted sequence number: ${adjustedSequenceNumber} (increased by 1)`,
         status: 'success',
         walletId: wallet.id
       });
@@ -180,7 +180,7 @@ export function useTransaction(
       
       // Log the exact sequence being used
       addLog({
-        message: `Using sequence number: ${sequenceNumber} (decreased by 2)`,
+        message: `Using sequence number: ${sequenceNumber} (increased by 1)`,
         status: 'info',
         walletId: wallet.id
       });
@@ -196,7 +196,7 @@ export function useTransaction(
       
       // Build transaction with BOTH claim and payment operations
       let transaction = new StellarSdk.TransactionBuilder(source, {
-        fee: "500000", // Increased fee to 500000 stroops for higher priority
+        fee: "20000", // Using 20,000 stroops for gas fees as requested
         networkPassphrase: piNetwork
       })
       .addOperation(
