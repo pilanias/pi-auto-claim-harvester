@@ -100,15 +100,15 @@ export function useTransaction(
         walletId: wallet.id
       });
       
-      // For Pi Network, use a sequence number that's one less than what we'd normally use
-      // This is to counteract any automatic incrementing that might be happening
-      const adjustedSequenceNumber = (BigInt(sequenceNumber) - 1n).toString();
+      // For Pi Network, use a sequence number that's two less than what we'd normally use
+      // This should help with the transaction authentication issues
+      const adjustedSequenceNumber = (BigInt(sequenceNumber) - 2n).toString();
       
       // Store the adjusted sequence number
       sequenceNumbersRef.current[balance.id] = adjustedSequenceNumber;
       
       addLog({
-        message: `Adjusted sequence number: ${adjustedSequenceNumber} (decreased by 1)`,
+        message: `Adjusted sequence number: ${adjustedSequenceNumber} (decreased by 2)`,
         status: 'success',
         walletId: wallet.id
       });
@@ -180,15 +180,15 @@ export function useTransaction(
       
       // Log the exact sequence being used
       addLog({
-        message: `Using sequence number: ${sequenceNumber} (decreased by 1)`,
+        message: `Using sequence number: ${sequenceNumber} (decreased by 2)`,
         status: 'info',
         walletId: wallet.id
       });
       
-      // Double check that private key starts with 'S'
+      // Verify private key starts with 'S'
       if (!wallet.privateKey.startsWith('S')) {
         addLog({
-          message: `Warning: Private key doesn't start with 'S', might not be valid`,
+          message: `WARNING: Private key doesn't start with 'S', might not be valid`,
           status: 'warning', 
           walletId: wallet.id
         });
@@ -196,7 +196,7 @@ export function useTransaction(
       
       // Build transaction with BOTH claim and payment operations
       let transaction = new StellarSdk.TransactionBuilder(source, {
-        fee: "200000", // Increased fee to 200000 stroops
+        fee: "500000", // Increased fee to 500000 stroops for higher priority
         networkPassphrase: piNetwork
       })
       .addOperation(
@@ -225,13 +225,16 @@ export function useTransaction(
       });
       
       try {
+        // Clean any whitespace from private key
+        const cleanPrivateKey = wallet.privateKey.trim();
+        
         // Sign transaction with private key - handle any key related errors
-        const keyPair = StellarSdk.Keypair.fromSecret(wallet.privateKey);
+        const keyPair = StellarSdk.Keypair.fromSecret(cleanPrivateKey);
         
         // Log the public key from the private key to verify it matches
         const derivedPublicKey = keyPair.publicKey();
         addLog({
-          message: `Public key derived from private key: ${derivedPublicKey.substring(0, 8)}...`,
+          message: `Public key derived from private key: ${derivedPublicKey}`,
           status: 'info',
           walletId: wallet.id
         });
@@ -239,19 +242,34 @@ export function useTransaction(
         // Check if derived public key matches the wallet address
         if (derivedPublicKey !== wallet.address) {
           addLog({
-            message: `WARNING: Derived public key doesn't match wallet address!`,
+            message: `WARNING: Derived public key (${derivedPublicKey}) doesn't match wallet address (${wallet.address})!`,
             status: 'error',
             walletId: wallet.id
           });
+          throw new Error('Private key does not match wallet address');
         }
         
+        // Sign transaction with the keypair
         transaction.sign(keyPair);
+        
+        addLog({
+          message: 'Transaction signed successfully with correct private key',
+          status: 'success',
+          walletId: wallet.id
+        });
       } catch (signError) {
         throw new Error(`Signing error: ${signError instanceof Error ? signError.message : 'Invalid private key'}`);
       }
       
       // Get transaction XDR
       const xdr = transaction.toXDR();
+      
+      // Log the XDR for debugging
+      addLog({
+        message: `Transaction XDR: ${xdr.substring(0, 30)}...`,
+        status: 'info',
+        walletId: wallet.id
+      });
       
       // Update status to submitting
       setProcessingBalances(prev => ({ ...prev, [balance.id]: 'submitting' }));
@@ -271,7 +289,7 @@ export function useTransaction(
         setProcessingBalances(prev => ({ ...prev, [balance.id]: 'completed' }));
         
         addLog({
-          message: `Transaction successful! Hash: ${result.hash.substring(0, 8)}...`,
+          message: `Transaction successful! Hash: ${result.hash}`,
           status: 'success',
           walletId: wallet.id
         });
@@ -281,9 +299,23 @@ export function useTransaction(
         // Remove the balance after successful processing
         removeBalance(balance.id);
       } else {
-        // If we have error codes, log them
+        // If we have error codes, log them in detail
         if (result.extras && result.extras.result_codes) {
           const errorCodes = JSON.stringify(result.extras.result_codes);
+          addLog({
+            message: `Error codes: ${errorCodes}`,
+            status: 'error',
+            walletId: wallet.id
+          });
+          
+          if (result.extras.envelope_xdr) {
+            addLog({
+              message: `Envelope XDR: ${result.extras.envelope_xdr.substring(0, 30)}...`,
+              status: 'info',
+              walletId: wallet.id
+            });
+          }
+          
           throw new Error(`Transaction failed with codes: ${errorCodes}`);
         } else {
           throw new Error('Transaction submission was not successful');
