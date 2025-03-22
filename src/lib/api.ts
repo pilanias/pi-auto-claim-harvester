@@ -35,8 +35,8 @@ export const fetchSequenceNumber = async (sourceAddress: string) => {
     }
     
     const data = await response.json();
-    // Increment the sequence number by exactly 1 for the next transaction
-    return (BigInt(data.sequence) + 1n).toString();
+    // Return the exact sequence number without incrementing
+    return data.sequence;
   } catch (error) {
     console.error("Error fetching sequence number:", error);
     toast.error("Failed to fetch sequence number");

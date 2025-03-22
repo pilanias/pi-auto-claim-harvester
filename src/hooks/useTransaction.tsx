@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { WalletData, ClaimableBalance, TransactionStatus } from '@/lib/types';
 import { fetchSequenceNumber, submitTransaction } from '@/lib/api';
@@ -89,8 +90,9 @@ export function useTransaction(
     });
     
     try {
-      // Fetch sequence number - this now returns exactly sequence+1
+      // Fetch sequence number - this returns the EXACT sequence from the network
       const sequenceNumber = await fetchSequenceNumber(wallet.address);
+      // Store the exact sequence number from the network
       sequenceNumbersRef.current[balance.id] = sequenceNumber;
       
       addLog({
@@ -155,14 +157,23 @@ export function useTransaction(
     });
     
     try {
-      // Get sequence number
+      // Get sequence number from our stored reference
       const sequenceNumber = sequenceNumbersRef.current[balance.id];
       if (!sequenceNumber) {
         throw new Error('Sequence number not found');
       }
       
-      // Create source account
-      const source = new StellarSdk.Account(wallet.address, sequenceNumber);
+      // Create source account WITH INCREMENT by 1 here (not in the API)
+      // Use BigInt to safely handle large integers and increment by 1
+      const incrementedSeq = (BigInt(sequenceNumber) + 1n).toString();
+      const source = new StellarSdk.Account(wallet.address, incrementedSeq);
+      
+      // Log the exact sequence being used
+      addLog({
+        message: `Using sequence number: ${incrementedSeq} (increment from ${sequenceNumber})`,
+        status: 'info',
+        walletId: wallet.id
+      });
       
       // Build transaction with BOTH claim and payment operations
       let transaction = new StellarSdk.TransactionBuilder(source, {
