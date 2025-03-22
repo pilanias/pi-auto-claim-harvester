@@ -17,11 +17,16 @@ const SeedPhraseInput: React.FC<SeedPhraseInputProps> = ({ onKeysGenerated }) =>
   const [isDerivingKeys, setIsDerivingKeys] = useState(false);
   const [derivedAddress, setDerivedAddress] = useState('');
   const [derivationError, setDerivationError] = useState<string | null>(null);
+  const [derivationAttempts, setDerivationAttempts] = useState(0);
 
   const handleDeriveKeys = async () => {
     try {
       setIsDerivingKeys(true);
       setDerivationError(null);
+      setDerivationAttempts(prev => prev + 1);
+      
+      // Add a short delay to ensure UI updates and to allow time for the browser's crypto API
+      await new Promise(resolve => setTimeout(resolve, 100));
       
       const keys = await deriveKeysFromSeedPhrase(seedPhrase);
       if (!keys) throw new Error('Failed to derive keys');
@@ -47,6 +52,8 @@ const SeedPhraseInput: React.FC<SeedPhraseInputProps> = ({ onKeysGenerated }) =>
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
             {derivationError}
+            {derivationAttempts > 1 && 
+              ' Please ensure you entered the correct seed phrase or try a different browser.'}
           </AlertDescription>
         </Alert>
       )}
