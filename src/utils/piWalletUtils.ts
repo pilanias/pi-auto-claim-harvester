@@ -37,8 +37,16 @@ export const deriveKeysFromSeedPhrase = async (seedPhrase: string): Promise<{
       throw new Error('Invalid mnemonic phrase. Please check your seed words.');
     }
 
+    // Generate the seed from the mnemonic
     const seed = await bip39.mnemonicToSeed(seedPhrase);
-    const derived = derivePath(PI_DERIVATION_PATH, seed); 
+    
+    // Convert the seed Buffer to a hex string as required by derivePath
+    const seedHex = seed.toString('hex');
+    
+    // Derive the key using the hex string
+    const derived = derivePath(PI_DERIVATION_PATH, seedHex);
+    
+    // Create a Stellar keypair from the derived key
     const keypair = StellarSdk.Keypair.fromRawEd25519Seed(derived.key);
     
     console.log('Derived public key:', keypair.publicKey());
