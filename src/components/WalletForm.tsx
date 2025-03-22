@@ -10,11 +10,16 @@ import * as StellarSdk from 'stellar-sdk';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
+import * as bip39 from 'bip39';
+import { derivePath } from 'ed25519-hd-key';
 
 interface WalletFormProps {
   onAddWallet: (walletData: { address: string; privateKey: string; destinationAddress: string }) => boolean;
   className?: string;
 }
+
+// Pi uses BIP-44 derivation path for ED25519
+const PI_DERIVATION_PATH = "m/44'/314159'/0'"; 
 
 const WalletForm: React.FC<WalletFormProps> = ({ onAddWallet, className = '' }) => {
   const [useSeedPhrase, setUseSeedPhrase] = useState(true);
@@ -27,77 +32,72 @@ const WalletForm: React.FC<WalletFormProps> = ({ onAddWallet, className = '' }) 
   const [privateKey, setPrivateKey] = useState('');
   const [showPrivateKey, setShowPrivateKey] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [derivationError, setDerivationError] = useState<string | null>(null);
 
-  // Function to derive keys from seed phrase
+  // Function to derive keys from seed phrase using proper BIP39 derivation
   const deriveKeysFromSeedPhrase = async () => {
     try {
       setIsDerivingKeys(true);
+      setDerivationError(null);
       
       // Simple validation
-      if (!seedPhrase.trim()) {
+      const trimmedSeedPhrase = seedPhrase.trim();
+      if (!trimmedSeedPhrase) {
         throw new Error('Seed phrase is required');
       }
       
       // Split the seed phrase into words and clean any extra whitespace
-      const words = seedPhrase.trim().split(/\s+/);
+      const words = trimmedSeedPhrase.split(/\s+/);
       
       // Basic validation of word count (BIP-39 standard)
       if (words.length !== 12 && words.length !== 24) {
-        toast.error(`Invalid seed phrase length: ${words.length} words. Must be 12 or 24 words.`);
-        throw new Error('Seed phrase must contain 12 or 24 words');
+        const errorMsg = `Invalid seed phrase length: ${words.length} words. Must be 12 or 24 words.`;
+        toast.error(errorMsg);
+        setDerivationError(errorMsg);
+        throw new Error(errorMsg);
       }
       
-      // Generate a deterministic key from the seed phrase
-      // This is a simplified version for demonstration
-      // In production, you'd use proper BIP39 derivation
-
-      try {
-        // Create a deterministic seed from the mnemonic
-        // For demo purposes, we'll generate a consistent Keypair from seed words
-        
-        // Create a buffer that uses the first character of each word
-        const seedBuffer = Buffer.alloc(32); // 32 bytes for ed25519
-        
-        // Fill the buffer with values derived from words
-        for (let i = 0; i < words.length && i < 32; i++) {
-          // Use the charCode of the first character of each word as a simple source of entropy
-          seedBuffer[i % 32] = words[i].charCodeAt(0) % 256;
-        }
-        
-        // Generate a keypair from this seed
-        const keyPair = StellarSdk.Keypair.fromRawEd25519Seed(seedBuffer);
-        
-        // Get the derived public and private keys
-        const publicKey = keyPair.publicKey();
-        const secretKey = keyPair.secret();
-        
-        console.log('Derived public key:', publicKey);
-        console.log('Derived secret key (first 4 chars):', secretKey.substring(0, 4) + '...');
-        
-        // Update the state with derived keys
-        setDerivedAddress(publicKey);
-        setDerivedPrivateKey(secretKey);
-        
-        toast.success("Successfully derived wallet address");
-        return { publicKey, secretKey };
-      } catch (keyError) {
-        console.error("Error creating keypair:", keyError);
-        
-        // Fallback - generate a random keypair for testing only
-        const keypair = StellarSdk.Keypair.random();
-        const publicKey = keypair.publicKey();
-        const secretKey = keypair.secret();
-        
-        // Update the state with generated keys
-        setDerivedAddress(publicKey);
-        setDerivedPrivateKey(secretKey);
-        
-        toast.warning("Generated test keypair (not from seed)");
-        return { publicKey, secretKey };
+      // Validate the mnemonic
+      if (!bip39.validateMnemonic(trimmedSeedPhrase)) {
+        const errorMsg = 'Invalid mnemonic phrase. Please check your seed words.';
+        toast.error(errorMsg);
+        setDerivationError(errorMsg);
+        throw new Error(errorMsg);
       }
+
+      // Generate seed from mnemonic
+      const seed = await bip39.mnemonicToSeed(trimmedSeedPhrase);
+      
+      // Derive the key using Pi's derivation path
+      const derived = derivePath(PI_DERIVATION_PATH, Buffer.from(seed).toString('hex'));
+      const privateKeyBuffer = Buffer.from(derived.key);
+      
+      // Convert to Stellar keypair
+      const keypair = StellarSdk.Keypair.fromRawEd25519Seed(privateKeyBuffer);
+      
+      // Get the derived public and private keys
+      const publicKey = keypair.publicKey();
+      const secretKey = keypair.secret();
+      
+      console.log('Derived public key:', publicKey);
+      console.log('Derived secret key (first 4 chars):', secretKey.substring(0, 4) + '...');
+      
+      // Update the state with derived keys
+      setDerivedAddress(publicKey);
+      setDerivedPrivateKey(secretKey);
+      
+      toast.success("Successfully derived wallet address");
+      return { publicKey, secretKey };
+      
     } catch (error) {
       console.error('Error deriving keys:', error);
-      toast.error(`Failed to derive keys: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      toast.error(`Failed to derive keys: ${errorMessage}`);
+      
+      if (!derivationError) {
+        setDerivationError(errorMessage);
+      }
+      
       throw error;
     } finally {
       setIsDerivingKeys(false);
@@ -130,6 +130,7 @@ const WalletForm: React.FC<WalletFormProps> = ({ onAddWallet, className = '' }) 
           setDerivedAddress('');
           setDerivedPrivateKey('');
           setDestinationAddress('');
+          setDerivationError(null);
         }
       } else {
         // Direct private key submission
@@ -147,6 +148,9 @@ const WalletForm: React.FC<WalletFormProps> = ({ onAddWallet, className = '' }) 
           setShowPrivateKey(false);
         }
       }
+    } catch (error) {
+      console.error('Form submission error:', error);
+      toast.error(`Submission failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsSubmitting(false);
     }
@@ -169,7 +173,10 @@ const WalletForm: React.FC<WalletFormProps> = ({ onAddWallet, className = '' }) 
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => setUseSeedPhrase(!useSeedPhrase)}
+            onClick={() => {
+              setUseSeedPhrase(!useSeedPhrase);
+              setDerivationError(null);
+            }}
             className="text-xs"
           >
             {useSeedPhrase ? 'Use Direct Keys' : 'Use Seed Phrase'}
@@ -187,14 +194,29 @@ const WalletForm: React.FC<WalletFormProps> = ({ onAddWallet, className = '' }) 
                   id="seedPhrase"
                   placeholder="Enter your 12 or 24 word seed phrase, separated by spaces"
                   value={seedPhrase}
-                  onChange={(e) => setSeedPhrase(e.target.value)}
+                  onChange={(e) => {
+                    setSeedPhrase(e.target.value);
+                    // Clear derived values when seed phrase changes
+                    if (derivedAddress) {
+                      setDerivedAddress('');
+                      setDerivedPrivateKey('');
+                    }
+                    if (derivationError) {
+                      setDerivationError(null);
+                    }
+                  }}
                   rows={3}
                   required
-                  className="transition duration-200"
+                  className={`transition duration-200 ${derivationError ? 'border-destructive' : ''}`}
                 />
                 <p className="text-xs text-muted-foreground mt-1">
                   Your seed phrase is only stored locally and never transmitted
                 </p>
+                {derivationError && (
+                  <p className="text-xs text-destructive mt-1">
+                    {derivationError}
+                  </p>
+                )}
               </div>
               
               <div className="flex justify-end">
