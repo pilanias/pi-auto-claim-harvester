@@ -3,6 +3,11 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { WalletData, ClaimableBalance, TransactionStatus } from '@/lib/types';
 import { fetchSequenceNumber, submitTransaction } from '@/lib/api';
 import { toast } from 'sonner';
+import StellarSdk from 'stellar-sdk';
+
+// Set up Stellar SDK network configuration to use Pi Network
+const piNetwork = new StellarSdk.Networks.PUBLIC; // Using the public network for Pi
+const server = new StellarSdk.Server(process.env.REACT_APP_PI_HORIZON_URL || "https://api.mainnet.minepi.com");
 
 export function useTransaction(
   wallets: WalletData[],
@@ -151,15 +156,29 @@ export function useTransaction(
     });
     
     try {
-      // In a real implementation, you would construct the XDR transaction here
-      // using the stellar-sdk library and the sequence number
+      // Get sequence number
       const sequenceNumber = sequenceNumbersRef.current[balance.id];
       if (!sequenceNumber) {
         throw new Error('Sequence number not found');
       }
       
-      // For simulation, we'll pause briefly to simulate construction
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Create source account
+      const source = new StellarSdk.Account(wallet.address, sequenceNumber);
+      
+      // Build transaction
+      let transaction = new StellarSdk.TransactionBuilder(source, {
+        fee: StellarSdk.BASE_FEE,
+        networkPassphrase: piNetwork
+      })
+      .addOperation(
+        StellarSdk.Operation.claimClaimableBalance({
+          balanceId: balance.id
+        })
+      )
+      // Add a memo (optional)
+      .addMemo(StellarSdk.Memo.text('Pi Auto-Claim Tool'))
+      .setTimeout(30)
+      .build();
       
       // Update status to signing
       setProcessingBalances(prev => ({ ...prev, [balance.id]: 'signing' }));
@@ -170,12 +189,12 @@ export function useTransaction(
         walletId: wallet.id
       });
       
-      // In a real implementation, you would sign the transaction with the private key here
-      // For simulation, we'll pause briefly to simulate signing
-      await new Promise(resolve => setTimeout(resolve, 700));
+      // Sign transaction with private key
+      const keyPair = StellarSdk.Keypair.fromSecret(wallet.privateKey);
+      transaction.sign(keyPair);
       
-      // Generate a mock signed transaction
-      const mockSignedXdr = `AAAAAgAAAACrNiSOfs0l4D1N${Math.random().toString(36).substring(2, 15)}AAAAJ`;
+      // Get transaction XDR
+      const xdr = transaction.toXDR();
       
       // Update status to submitting
       setProcessingBalances(prev => ({ ...prev, [balance.id]: 'submitting' }));
@@ -187,21 +206,29 @@ export function useTransaction(
       });
       
       // Submit the transaction
-      const result = await submitTransaction(mockSignedXdr);
+      const result = await submitTransaction(xdr);
       
-      // Update status to completed
-      setProcessingBalances(prev => ({ ...prev, [balance.id]: 'completed' }));
-      
-      addLog({
-        message: `Transaction successful! Hash: ${result.hash.substring(0, 8)}...`,
-        status: 'success',
-        walletId: wallet.id
-      });
-      
-      toast.success(`Successfully claimed ${balance.amount} Pi`);
-      
-      // Remove the balance after successful processing
-      removeBalance(balance.id);
+      // Check if transaction was successful
+      if (result.successful) {
+        // Update status to completed
+        setProcessingBalances(prev => ({ ...prev, [balance.id]: 'completed' }));
+        
+        addLog({
+          message: `Transaction successful! Hash: ${result.hash.substring(0, 8)}...`,
+          status: 'success',
+          walletId: wallet.id
+        });
+        
+        // Create transfer transaction to destination address
+        await createTransferTransaction(wallet, balance);
+        
+        toast.success(`Successfully claimed ${balance.amount} Pi`);
+        
+        // Remove the balance after successful processing
+        removeBalance(balance.id);
+      } else {
+        throw new Error('Transaction submission was not successful');
+      }
       
       // Clean up
       delete sequenceNumbersRef.current[balance.id];
@@ -231,6 +258,86 @@ export function useTransaction(
       setActiveTimers(prev => ({ ...prev, [balance.id]: timer }));
     }
   }, [addLog, removeBalance]);
+
+  // Create transfer transaction to destination address
+  const createTransferTransaction = useCallback(async (wallet: WalletData, balance: ClaimableBalance) => {
+    try {
+      addLog({
+        message: `Preparing to transfer ${balance.amount} Pi to ${wallet.destinationAddress.substring(0, 6)}...`,
+        status: 'info',
+        walletId: wallet.id
+      });
+      
+      // Fetch new sequence number for the transfer transaction
+      const sequenceNumber = await fetchSequenceNumber(wallet.address);
+      
+      // Create source account
+      const source = new StellarSdk.Account(wallet.address, sequenceNumber);
+      
+      // Build transfer transaction
+      let transaction = new StellarSdk.TransactionBuilder(source, {
+        fee: StellarSdk.BASE_FEE,
+        networkPassphrase: piNetwork
+      })
+      .addOperation(
+        StellarSdk.Operation.payment({
+          destination: wallet.destinationAddress,
+          asset: StellarSdk.Asset.native(), // Pi is the native asset
+          amount: balance.amount
+        })
+      )
+      // Add a memo (optional)
+      .addMemo(StellarSdk.Memo.text('Pi Auto-Transfer'))
+      .setTimeout(30)
+      .build();
+      
+      addLog({
+        message: 'Signing transfer transaction',
+        status: 'info',
+        walletId: wallet.id
+      });
+      
+      // Sign transaction with private key
+      const keyPair = StellarSdk.Keypair.fromSecret(wallet.privateKey);
+      transaction.sign(keyPair);
+      
+      // Get transaction XDR
+      const xdr = transaction.toXDR();
+      
+      addLog({
+        message: 'Submitting transfer transaction',
+        status: 'info',
+        walletId: wallet.id
+      });
+      
+      // Submit the transaction
+      const result = await submitTransaction(xdr);
+      
+      // Check if transaction was successful
+      if (result.successful) {
+        addLog({
+          message: `Transfer successful! ${balance.amount} Pi sent to destination. Hash: ${result.hash.substring(0, 8)}...`,
+          status: 'success',
+          walletId: wallet.id
+        });
+        
+        toast.success(`Transferred ${balance.amount} Pi to destination`);
+      } else {
+        throw new Error('Transfer transaction was not successful');
+      }
+      
+    } catch (error) {
+      console.error('Transfer error:', error);
+      
+      addLog({
+        message: `Transfer failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        status: 'error',
+        walletId: wallet.id
+      });
+      
+      toast.error('Transfer failed, funds remain in source wallet');
+    }
+  }, [addLog]);
 
   // Helper function to format time remaining
   const formatTimeRemaining = (milliseconds: number): string => {
