@@ -1,3 +1,4 @@
+
 import { toast } from "sonner";
 
 // Pi Network API base URL
@@ -67,5 +68,3 @@ export const submitTransaction = async (xdr: string) => {
     throw error;
   }
 };
-
-// We're removing the mock data generation functions since we're using real APIs now
