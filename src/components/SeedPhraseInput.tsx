@@ -3,9 +3,10 @@ import React, { useState } from 'react';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { deriveKeysFromSeedPhrase } from '@/utils/piWalletUtils';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 interface SeedPhraseInputProps {
   onKeysGenerated: (publicKey: string, privateKey: string) => void;
@@ -41,6 +42,15 @@ const SeedPhraseInput: React.FC<SeedPhraseInputProps> = ({ onKeysGenerated }) =>
 
   return (
     <div className="space-y-4">
+      {derivationError && (
+        <Alert variant="destructive" className="animate-shake">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            {derivationError}
+          </AlertDescription>
+        </Alert>
+      )}
+      
       <div className="space-y-2">
         <Label htmlFor="seedPhrase">Seed Phrase</Label>
         <Textarea
@@ -65,11 +75,6 @@ const SeedPhraseInput: React.FC<SeedPhraseInputProps> = ({ onKeysGenerated }) =>
         <p className="text-xs text-muted-foreground mt-1">
           Your seed phrase is only stored locally and never transmitted
         </p>
-        {derivationError && (
-          <p className="text-xs text-destructive mt-1">
-            {derivationError}
-          </p>
-        )}
       </div>
       
       <div className="flex justify-end">
