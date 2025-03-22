@@ -4,7 +4,6 @@ import { v4 as uuidv4 } from 'uuid';
 import { WalletData, LogEntry } from '@/lib/types';
 import { saveWallets, loadWallets, saveLogs, loadLogs } from '@/lib/storage';
 import { toast } from 'sonner';
-import * as StellarSdk from 'stellar-sdk';
 
 export function useWalletManager() {
   const [wallets, setWallets] = useState<WalletData[]>([]);
@@ -51,56 +50,9 @@ export function useWalletManager() {
       return false;
     }
     
-    // Validate wallet address format
-    try {
-      // Attempt to parse the address (will throw if invalid)
-      StellarSdk.StrKey.decodeEd25519PublicKey(walletData.address);
-    } catch (e) {
-      toast.error('Invalid wallet address format');
-      return false;
-    }
-    
-    // Validate private key format
-    try {
-      // Check if private key starts with 'S'
-      if (!walletData.privateKey.startsWith('S')) {
-        toast.error('Invalid private key format. Must start with "S"');
-        return false;
-      }
-      
-      // Attempt to parse the private key (will throw if invalid)
-      StellarSdk.StrKey.decodeEd25519SecretSeed(walletData.privateKey);
-    } catch (e) {
-      toast.error('Invalid private key format');
-      return false;
-    }
-    
-    // Validate destination address format
-    try {
-      // Attempt to parse the address (will throw if invalid)
-      StellarSdk.StrKey.decodeEd25519PublicKey(walletData.destinationAddress);
-    } catch (e) {
-      toast.error('Invalid destination address format');
-      return false;
-    }
-    
     // Check if wallet already exists
     if (wallets.some(w => w.address === walletData.address)) {
       toast.error('This wallet address is already being tracked');
-      return false;
-    }
-
-    // Validate that the private key corresponds to the public key
-    try {
-      const keyPair = StellarSdk.Keypair.fromSecret(walletData.privateKey);
-      const derivedPublicKey = keyPair.publicKey();
-      
-      if (derivedPublicKey !== walletData.address) {
-        toast.error('Private key does not match the provided wallet address');
-        return false;
-      }
-    } catch (e) {
-      toast.error('Error validating key pair');
       return false;
     }
 
