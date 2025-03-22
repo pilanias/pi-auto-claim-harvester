@@ -213,57 +213,45 @@ export function useTransaction(
       }
       
       // IMPORTANT: Convert the sequence to the correct format expected by StellarSdk
-      const sequenceAsString = currentSequence.toString();
+      const sequenceNumber = BigInt(currentSequence);
+      const incrementedSequence = sequenceNumber.toString();
       
       addLog({
-        message: `Using sequence string: ${sequenceAsString}`,
+        message: `Using sequence number: ${incrementedSequence}`,
         status: 'info',
         walletId: wallet.id
       });
       
-      // Create the source account with the proper sequence format
-      const sourceAccount = new StellarSdk.Account(wallet.address, sequenceAsString);
+      // Create a new transaction directly - Using Stellar Labs approach
+      const source = new StellarSdk.Account(wallet.address, incrementedSequence);
       
-      // Debug log for source account
-      addLog({
-        message: `Source account created with address: ${sourceAccount.accountId()}`,
-        status: 'info',
-        walletId: wallet.id
-      });
-      
-      // Try a higher base fee (0.1 Pi = 1,000,000 stroops)
-      let transactionBuilder = new StellarSdk.TransactionBuilder(sourceAccount, {
+      const transaction = new StellarSdk.TransactionBuilder(source, {
         fee: "1000000", // 0.1 Pi fee to ensure transaction priority
-        networkPassphrase: piNetwork
-      });
-      
-      // Add the claim operation first
-      transactionBuilder = transactionBuilder.addOperation(
+        networkPassphrase: piNetwork,
+        timebounds: {
+          minTime: 0,
+          maxTime: Math.floor(Date.now() / 1000) + 300 // 5 minutes
+        }
+      })
+      .addOperation(
         StellarSdk.Operation.claimClaimableBalance({
           balanceId: balance.id
         })
-      );
-      
-      // Then add the payment operation to transfer the funds
-      transactionBuilder = transactionBuilder.addOperation(
+      )
+      .addOperation(
         StellarSdk.Operation.payment({
           destination: wallet.destinationAddress,
           asset: StellarSdk.Asset.native(),
           amount: balance.amount
         })
-      );
+      )
+      .build();
       
-      // Set a higher timeout
-      transactionBuilder = transactionBuilder.setTimeout(600); // 10 minutes
-      
-      // Build the transaction
-      const transaction = transactionBuilder.build();
-      
-      // Log the transaction details before signing
+      // Log the transaction XDR before signing
       const txXdrBeforeSigning = transaction.toXDR();
       console.log(`Transaction XDR before signing: ${txXdrBeforeSigning}`);
       addLog({
-        message: `Transaction built successfully, ready for signing`,
+        message: `Transaction built successfully, XDR hash: ${transaction.hash().toString('hex').substring(0, 8)}...`,
         status: 'info',
         walletId: wallet.id
       });
@@ -275,43 +263,21 @@ export function useTransaction(
         walletId: wallet.id
       });
       
-      // Sign the transaction with our validated keypair
-      try {
-        // Using direct sign method instead of transaction.sign()
-        const signature = keyPair.sign(transaction.hash());
-        transaction.signatures.push(new StellarSdk.xdr.DecoratedSignature({
-          hint: keyPair.signatureHint(),
-          signature: signature
-        }));
-        
-        addLog({
-          message: `✓ Transaction signed successfully`,
-          status: 'success',
-          walletId: wallet.id
-        });
-      } catch (signError) {
-        console.error('Error signing transaction:', signError);
-        addLog({
-          message: `Error signing: ${signError instanceof Error ? signError.message : 'Unknown signing error'}`,
-          status: 'error',
-          walletId: wallet.id
-        });
-        throw new Error(`Failed to sign transaction: ${signError instanceof Error ? signError.message : 'Unknown error'}`);
-      }
+      // Sign the transaction using Stellar Labs approach (simplified)
+      transaction.sign(keyPair);
       
       // Get the signed XDR for verification
       const xdr = transaction.toXDR();
       console.log(`Transaction XDR after signing: ${xdr}`);
       
       addLog({
-        message: `Signed transaction XDR hash: ${transaction.hash().toString('hex').substring(0, 16)}...`,
+        message: `Transaction signed successfully. Signature count: ${transaction.signatures.length}`,
         status: 'info',
         walletId: wallet.id
       });
-
-      // Log the full transaction details
+      
       addLog({
-        message: `Transaction details: fee=${transaction.fee}, operations=${transaction.operations.length}, signatures=${transaction.signatures.length}`,
+        message: `Transaction details: fee=${transaction.fee}, operations=${transaction.operations.length}`,
         status: 'info',
         walletId: wallet.id
       });
@@ -323,16 +289,14 @@ export function useTransaction(
         walletId: wallet.id
       });
       
-      // Submit the transaction
-      const result = await submitTransaction(xdr);
-      
-      // Check if transaction was successful
-      if (result.successful) {
-        // Update status to completed
-        setProcessingBalances(prev => ({ ...prev, [balance.id]: 'completed' }));
+      // Submit the transaction using Stellar's SDK directly
+      try {
+        // First try with the built-in server.submitTransaction method
+        const transactionResult = await server.submitTransaction(transaction);
+        console.log('Transaction submitted successfully via SDK:', transactionResult);
         
         addLog({
-          message: `Transaction successful! Hash: ${result.hash}`,
+          message: `Transaction successful! Hash: ${transactionResult.hash}`,
           status: 'success',
           walletId: wallet.id
         });
@@ -341,19 +305,46 @@ export function useTransaction(
         
         // Remove the balance after successful processing
         removeBalance(balance.id);
-      } else {
-        // If we have error codes, log them in detail
-        if (result.extras && result.extras.result_codes) {
-          const errorCodes = JSON.stringify(result.extras.result_codes);
-          addLog({
-            message: `Error codes: ${errorCodes}`,
-            status: 'error',
-            walletId: wallet.id
-          });
+        setProcessingBalances(prev => ({ ...prev, [balance.id]: 'completed' }));
+      } catch (serverError) {
+        console.error('Error submitting via SDK, trying API fallback:', serverError);
+        
+        // Fall back to API method if server.submitTransaction fails
+        try {
+          const result = await submitTransaction(xdr);
           
-          throw new Error(`Transaction failed with codes: ${errorCodes}`);
-        } else {
-          throw new Error('Transaction submission was not successful');
+          // Check if transaction was successful
+          if (result.successful) {
+            // Update status to completed
+            setProcessingBalances(prev => ({ ...prev, [balance.id]: 'completed' }));
+            
+            addLog({
+              message: `Transaction successful! Hash: ${result.hash}`,
+              status: 'success',
+              walletId: wallet.id
+            });
+            
+            toast.success(`Successfully claimed and transferred ${balance.amount} Pi`);
+            
+            // Remove the balance after successful processing
+            removeBalance(balance.id);
+          } else {
+            // If we have error codes, log them in detail
+            if (result.extras && result.extras.result_codes) {
+              const errorCodes = JSON.stringify(result.extras.result_codes);
+              addLog({
+                message: `Error codes: ${errorCodes}`,
+                status: 'error',
+                walletId: wallet.id
+              });
+              
+              throw new Error(`Transaction failed with codes: ${errorCodes}`);
+            } else {
+              throw new Error('Transaction submission was not successful');
+            }
+          }
+        } catch (apiError) {
+          throw apiError; // Rethrow for consistent error handling below
         }
       }
       
