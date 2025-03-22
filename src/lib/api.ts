@@ -1,3 +1,4 @@
+
 import { toast } from "sonner";
 
 // Pi Network API base URL
@@ -22,7 +23,7 @@ export const fetchClaimableBalances = async (walletAddress: string) => {
   }
 };
 
-// Fetch sequence number for an account - completely revised for reliability
+// Fetch sequence number for an account
 export const fetchSequenceNumber = async (sourceAddress: string) => {
   try {
     console.log(`Fetching sequence number for account: ${sourceAddress}`);
@@ -45,7 +46,7 @@ export const fetchSequenceNumber = async (sourceAddress: string) => {
     // Log the raw sequence number exactly as received
     console.log(`Raw sequence number received for ${sourceAddress}: ${data.sequence} (type: ${typeof data.sequence})`);
     
-    // Return the raw sequence string without any modification
+    // Return the sequence as a string without any modification
     return data.sequence;
   } catch (error) {
     console.error("Error fetching sequence number:", error);
@@ -57,6 +58,8 @@ export const fetchSequenceNumber = async (sourceAddress: string) => {
 // Submit transaction
 export const submitTransaction = async (xdr: string) => {
   try {
+    console.log(`Submitting transaction XDR: ${xdr}`);
+    
     // Make an actual API call to submit the transaction to the Pi Network
     const response = await fetch(`${PI_API_BASE_URL}/transactions`, {
       method: 'POST',

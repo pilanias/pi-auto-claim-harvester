@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { WalletData, ClaimableBalance, TransactionStatus } from '@/lib/types';
 import { fetchSequenceNumber, submitTransaction } from '@/lib/api';
@@ -16,8 +17,7 @@ export function useTransaction(
 ) {
   const [processingBalances, setProcessingBalances] = useState<Record<string, TransactionStatus>>({});
   const [activeTimers, setActiveTimers] = useState<Record<string, NodeJS.Timeout>>({});
-  const sequenceNumbersRef = useRef<Record<string, string>>({});
-
+  
   // Clean up timers on unmount
   useEffect(() => {
     return () => {
@@ -89,30 +89,15 @@ export function useTransaction(
     });
     
     try {
-      // Fetch sequence number with detailed logging
-      const rawSequenceNumber = await fetchSequenceNumber(wallet.address);
+      // Fetch sequence number directly from the API, don't modify it
+      const currentSequence = await fetchSequenceNumber(wallet.address);
       
-      // Log the raw sequence number received from API
+      // Log the current sequence number exactly as received
       addLog({
-        message: `Raw sequence number received: ${rawSequenceNumber}`,
+        message: `Current sequence from API: ${currentSequence}`,
         status: 'info',
         walletId: wallet.id
       });
-      
-      // Convert to BigInt, add 1, and convert back to string for the next valid sequence
-      // This ensures we use the next valid sequence number as required by the protocol
-      const bigIntSeq = BigInt(rawSequenceNumber);
-      const nextSequence = (bigIntSeq + 1n).toString();
-      
-      // Log what we're doing clearly
-      addLog({
-        message: `Current sequence: ${rawSequenceNumber}, Next sequence for transaction: ${nextSequence}`,
-        status: 'success',
-        walletId: wallet.id
-      });
-      
-      // Store the next sequence number to use for the transaction
-      sequenceNumbersRef.current[balance.id] = nextSequence;
       
       // Check if we need to wait for unlock time
       const now = new Date();
@@ -129,15 +114,15 @@ export function useTransaction(
           walletId: wallet.id
         });
         
-        // Set timer to construct transaction 1 second after unlock
+        // Set timer to construct transaction at unlock time
         const timer = setTimeout(() => {
-          constructAndSubmitTransaction(balance, wallet);
-        }, timeUntilUnlock + 1000);
+          constructAndSubmitTransaction(balance, wallet, currentSequence);
+        }, timeUntilUnlock + 500); // Add a small buffer after unlock
         
         setActiveTimers(prev => ({ ...prev, [balance.id]: timer }));
       } else {
         // Already unlocked, construct and submit transaction immediately
-        constructAndSubmitTransaction(balance, wallet);
+        constructAndSubmitTransaction(balance, wallet, currentSequence);
       }
     } catch (error) {
       console.error('Error fetching sequence number:', error);
@@ -159,7 +144,11 @@ export function useTransaction(
   }, [wallets, addLog]);
 
   // Construct and submit transaction with both claim and payment operations
-  const constructAndSubmitTransaction = useCallback(async (balance: ClaimableBalance, wallet: WalletData) => {
+  const constructAndSubmitTransaction = useCallback(async (
+    balance: ClaimableBalance, 
+    wallet: WalletData, 
+    currentSequence: string
+  ) => {
     // Update status to constructing
     setProcessingBalances(prev => ({ ...prev, [balance.id]: 'constructing' }));
     
@@ -170,18 +159,12 @@ export function useTransaction(
     });
     
     try {
-      // Get sequence number from our stored reference
-      const nextSequence = sequenceNumbersRef.current[balance.id];
-      if (!nextSequence) {
-        throw new Error('Sequence number not found');
-      }
+      // Use the exact sequence number from the API
+      // Create Account using the current sequence number without modification
+      const sourceAccount = new StellarSdk.Account(wallet.address, currentSequence);
       
-      // Create source account with the next sequence number
-      const source = new StellarSdk.Account(wallet.address, nextSequence);
-      
-      // Log the exact sequence being used for absolute clarity
       addLog({
-        message: `Using sequence number: ${nextSequence} for transaction (this is current + 1)`,
+        message: `Creating transaction with current sequence number: ${currentSequence}`,
         status: 'info',
         walletId: wallet.id
       });
@@ -196,7 +179,7 @@ export function useTransaction(
       }
       
       // Build transaction with exactly 20000 stroops fee
-      let transaction = new StellarSdk.TransactionBuilder(source, {
+      let transaction = new StellarSdk.TransactionBuilder(sourceAccount, {
         fee: "20000", // Using exactly 20,000 stroops (0.00002 Pi) for transaction fee
         networkPassphrase: piNetwork
       })
@@ -214,6 +197,10 @@ export function useTransaction(
       )
       .setTimeout(0) // No timeout
       .build();
+      
+      // Log the transaction details for debugging
+      const txXDR = transaction.toXDR();
+      console.log(`Transaction XDR before signing: ${txXDR}`);
       
       // Update status to signing
       setProcessingBalances(prev => ({ ...prev, [balance.id]: 'signing' }));
@@ -264,12 +251,8 @@ export function useTransaction(
       // Get transaction XDR
       const xdr = transaction.toXDR();
       
-      // Log the XDR for debugging
-      addLog({
-        message: `Transaction XDR: ${xdr.substring(0, 30)}...`,
-        status: 'info',
-        walletId: wallet.id
-      });
+      // Log the signed XDR for debugging
+      console.log(`Transaction XDR: ${xdr}`);
       
       // Update status to submitting
       setProcessingBalances(prev => ({ ...prev, [balance.id]: 'submitting' }));
@@ -322,8 +305,7 @@ export function useTransaction(
         }
       }
       
-      // Clean up
-      delete sequenceNumbersRef.current[balance.id];
+      // Clean up active timers for this balance
       setActiveTimers(prev => {
         const newTimers = { ...prev };
         delete newTimers[balance.id];
