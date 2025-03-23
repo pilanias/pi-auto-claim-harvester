@@ -2,8 +2,24 @@
 import { toast } from "sonner";
 import * as StellarSdk from '@stellar/stellar-sdk';
 
-// Backend API base URL - using GitHub Codespaces URL
-const BACKEND_API_URL = "https://supreme-giggle-9w4949v5pxvhxwpj-3001.app.github.dev/api";
+// Determine the correct backend URL based on the environment
+// This helps the app work both in development and production
+const getBackendApiUrl = () => {
+  // Production (Vercel)
+  if (window.location.hostname === 'pi-auto-claim-harvester.vercel.app') {
+    return "https://supreme-giggle-9w4949v5pxvhxwpj-3001.app.github.dev/api";
+  }
+  
+  // GitHub Codespaces
+  if (window.location.hostname.includes('github.dev')) {
+    return "https://supreme-giggle-9w4949v5pxvhxwpj-3001.app.github.dev/api";
+  }
+  
+  // Local development
+  return "http://localhost:3001/api";
+};
+
+const BACKEND_API_URL = getBackendApiUrl();
 
 // Pi Network API base URL
 const PI_API_BASE_URL = "https://api.mainnet.minepi.com";

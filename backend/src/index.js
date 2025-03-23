@@ -26,6 +26,7 @@ const corsOptions = {
     const allowedOrigins = [
       process.env.CORS_ORIGIN,
       'https://supreme-giggle-9w4949v5pxvhxwpj-8080.app.github.dev',
+      'https://pi-auto-claim-harvester.vercel.app',
       // Add any additional origins that need access
       'http://localhost:5173',
       'http://localhost:3000',
@@ -33,7 +34,7 @@ const corsOptions = {
       'http://127.0.0.1:3000'
     ];
     
-    if (allowedOrigins.indexOf(origin) !== -1 || !origin) {
+    if (allowedOrigins.includes(origin) || !origin) {
       callback(null, true);
     } else {
       console.log('CORS blocked origin:', origin);
