@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { ClaimableBalance, WalletData } from '@/lib/types';
 import { fetchClaimableBalances } from '@/lib/api';
 import { toast } from 'sonner';
@@ -12,6 +12,8 @@ export function useClaimableBalances(wallets: WalletData[], addLog: Function) {
   const [isLoading, setIsLoading] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [refreshEnabled, setRefreshEnabled] = useState(true);
+  // Add a ref to track if fetch is in progress to prevent concurrent requests
+  const isFetching = useRef(false);
 
   // Helper function to extract the correct unlock time from predicate
   const extractUnlockTime = (record: any): Date => {
@@ -45,8 +47,8 @@ export function useClaimableBalances(wallets: WalletData[], addLog: Function) {
 
   // Fetch claimable balances for all wallets
   const fetchAllBalances = useCallback(async (force = false) => {
-    // Skip if already loading or no wallets
-    if ((isLoading && !force) || wallets.length === 0) {
+    // Skip if already loading, already fetching, or no wallets
+    if ((isLoading && !force) || isFetching.current || wallets.length === 0) {
       if (wallets.length === 0) {
         setClaimableBalances([]);
       }
@@ -62,12 +64,15 @@ export function useClaimableBalances(wallets: WalletData[], addLog: Function) {
       }
     }
 
+    // Set fetching flag to prevent concurrent requests
+    isFetching.current = true;
     setIsLoading(true);
     let newBalances: ClaimableBalance[] = [];
 
     try {
       for (const wallet of wallets) {
         try {
+          console.log(`Fetching balances for wallet ${wallet.address.substring(0, 6)}...`);
           const data = await fetchClaimableBalances(wallet.address);
           
           if (data._embedded?.records?.length > 0) {
@@ -119,6 +124,8 @@ export function useClaimableBalances(wallets: WalletData[], addLog: Function) {
       });
     } finally {
       setIsLoading(false);
+      // Reset fetching flag
+      isFetching.current = false;
     }
   }, [wallets, addLog, isLoading, lastUpdate]);
 
@@ -133,22 +140,34 @@ export function useClaimableBalances(wallets: WalletData[], addLog: Function) {
 
   // Initial fetch and setup periodic refresh with longer interval
   useEffect(() => {
-    fetchAllBalances();
+    // Initial fetch - with a small delay to avoid race conditions
+    const initialFetchTimer = setTimeout(() => {
+      if (!isFetching.current) {
+        fetchAllBalances();
+      }
+    }, 1000); 
     
     // Refresh balances every 5 minutes instead of 2 minutes
     const intervalId = setInterval(() => {
-      if (refreshEnabled) {
+      if (refreshEnabled && !isFetching.current) {
         console.log('Running scheduled balance check (5 minute interval)');
         fetchAllBalances();
       }
     }, REFRESH_INTERVAL);
     
-    return () => clearInterval(intervalId);
+    return () => {
+      clearTimeout(initialFetchTimer);
+      clearInterval(intervalId);
+    };
   }, [fetchAllBalances, refreshEnabled]);
 
-  // Also refresh whenever wallets change
+  // Refresh when wallets change but avoid infinite loops by adding a check
   useEffect(() => {
-    fetchAllBalances(true); // Force refresh when wallets change
+    // Only fetch if we have wallets and we're not already fetching
+    if (wallets.length > 0 && !isFetching.current) {
+      console.log(`Wallet count changed to ${wallets.length}, refreshing balances`);
+      fetchAllBalances(true); // Force refresh when wallets change
+    }
   }, [wallets.length, fetchAllBalances]);
 
   // Remove balances for wallets that no longer exist

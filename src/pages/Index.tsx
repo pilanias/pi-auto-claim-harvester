@@ -1,3 +1,4 @@
+
 import React, { useEffect } from 'react';
 import { useWalletManager } from '@/hooks/useWalletManager';
 import { useClaimableBalances } from '@/hooks/useClaimableBalances';
@@ -62,18 +63,18 @@ const Index = () => {
     });
   };
 
-  // Wrapper function to handle the promise from addWallet
+  // Update the wrapper function to accept the Promise from addWallet
   const handleAddWallet = async (walletData: {
     address: string;
     privateKey: string;
     destinationAddress: string;
   }) => {
     try {
-      const result = await addWallet(walletData);
-      return result;
+      await addWallet(walletData);
+      return true; // Return a boolean as expected by WalletForm
     } catch (error) {
       console.error('Error in handleAddWallet:', error);
-      return false;
+      return false; // Return a boolean as expected by WalletForm
     }
   };
 
