@@ -1,8 +1,12 @@
 
 import { toast } from "sonner";
+import * as StellarSdk from '@stellar/stellar-sdk';
 
 // Pi Network API base URL
 const PI_API_BASE_URL = "https://api.mainnet.minepi.com";
+
+// Network passphrase for Pi Network (same as Stellar public network)
+export const NETWORK_PASSPHRASE = StellarSdk.Networks.PUBLIC;
 
 // Fetch claimable balances for a wallet address
 export const fetchClaimableBalances = async (walletAddress: string) => {
@@ -55,10 +59,45 @@ export const fetchSequenceNumber = async (sourceAddress: string) => {
   }
 };
 
+// Generate transaction hash from XDR
+export const getTransactionHash = (xdr: string): string => {
+  try {
+    const transaction = StellarSdk.TransactionBuilder.fromXDR(xdr, NETWORK_PASSPHRASE);
+    return transaction.hash().toString('hex');
+  } catch (error) {
+    console.error("Error generating transaction hash:", error);
+    throw new Error(`Failed to generate transaction hash: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+};
+
+// Sign transaction with key (like Stellar Lab)
+export const signTransaction = (xdr: string, secretKey: string): string => {
+  try {
+    // Parse the transaction from XDR
+    const transaction = StellarSdk.TransactionBuilder.fromXDR(xdr, NETWORK_PASSPHRASE);
+    
+    // Create keypair from secret key
+    const keyPair = StellarSdk.Keypair.fromSecret(secretKey);
+    
+    // Sign the transaction (this modifies the transaction in-place)
+    transaction.sign(keyPair);
+    
+    // Convert back to XDR
+    return transaction.toXDR();
+  } catch (error) {
+    console.error("Error signing transaction:", error);
+    throw new Error(`Failed to sign transaction: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+};
+
 // Submit transaction
 export const submitTransaction = async (xdr: string) => {
   try {
     console.log(`Submitting transaction XDR: ${xdr}`);
+    
+    // Get the transaction hash for logging
+    const txHash = getTransactionHash(xdr);
+    console.log(`Transaction hash: ${txHash}`);
     
     // Make an actual API call to submit the transaction to the Pi Network
     const response = await fetch(`${PI_API_BASE_URL}/transactions`, {
