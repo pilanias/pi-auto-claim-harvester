@@ -3,6 +3,12 @@ import * as bip39 from "bip39";
 import { derivePath } from "ed25519-hd-key";
 import * as StellarSdk from '@stellar/stellar-sdk';
 
+// Add Buffer polyfill for browser environment
+import { Buffer } from 'buffer';
+
+// Make Buffer globally available
+window.Buffer = Buffer;
+
 // Pi Network specific derivation path
 const PI_DERIVATION_PATH = "m/44'/314159'/0'";
 
@@ -53,7 +59,9 @@ export const generatePiWallet = async (mnemonic: string): Promise<{
     
     // Derive key using Pi's derivation path
     const derived = derivePath(PI_DERIVATION_PATH, seed.toString("hex"));
-    const privateKey = Buffer.from(derived.key); // Ensure it's a Buffer
+    
+    // Ensure derived.key is properly handled as a Buffer
+    const privateKey = Buffer.from(derived.key);
 
     // Convert the raw Ed25519 seed to a Stellar keypair
     const keypair = StellarSdk.Keypair.fromRawEd25519Seed(privateKey);
