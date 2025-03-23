@@ -1,12 +1,17 @@
+
 import { useState, useEffect, useCallback } from 'react';
 import { ClaimableBalance, WalletData } from '@/lib/types';
 import { fetchClaimableBalances } from '@/lib/api';
 import { toast } from 'sonner';
 
+// Longer refresh interval (5 minutes = 300000ms)
+const REFRESH_INTERVAL = 5 * 60 * 1000;
+
 export function useClaimableBalances(wallets: WalletData[], addLog: Function) {
   const [claimableBalances, setClaimableBalances] = useState<ClaimableBalance[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const [refreshEnabled, setRefreshEnabled] = useState(true);
 
   // Helper function to extract the correct unlock time from predicate
   const extractUnlockTime = (record: any): Date => {
@@ -39,10 +44,22 @@ export function useClaimableBalances(wallets: WalletData[], addLog: Function) {
   };
 
   // Fetch claimable balances for all wallets
-  const fetchAllBalances = useCallback(async () => {
-    if (wallets.length === 0) {
-      setClaimableBalances([]);
+  const fetchAllBalances = useCallback(async (force = false) => {
+    // Skip if already loading or no wallets
+    if ((isLoading && !force) || wallets.length === 0) {
+      if (wallets.length === 0) {
+        setClaimableBalances([]);
+      }
       return;
+    }
+
+    // Prevent fetching too frequently unless forced
+    if (!force && lastUpdate) {
+      const timeSinceLastUpdate = Date.now() - lastUpdate.getTime();
+      if (timeSinceLastUpdate < 60000) { // 1 minute minimum between auto-refreshes
+        console.log(`Skipping automatic refresh - last update was ${Math.floor(timeSinceLastUpdate/1000)}s ago`);
+        return;
+      }
     }
 
     setIsLoading(true);
@@ -103,23 +120,35 @@ export function useClaimableBalances(wallets: WalletData[], addLog: Function) {
     } finally {
       setIsLoading(false);
     }
-  }, [wallets, addLog]);
+  }, [wallets, addLog, isLoading, lastUpdate]);
 
-  // Initial fetch and setup periodic refresh
+  // Toggle auto-refresh on/off
+  const toggleAutoRefresh = useCallback(() => {
+    setRefreshEnabled(prev => !prev);
+    addLog({
+      message: refreshEnabled ? 'Auto-refresh disabled' : 'Auto-refresh enabled',
+      status: 'info'
+    });
+  }, [refreshEnabled, addLog]);
+
+  // Initial fetch and setup periodic refresh with longer interval
   useEffect(() => {
     fetchAllBalances();
     
-    // Refresh balances every 2 minutes
+    // Refresh balances every 5 minutes instead of 2 minutes
     const intervalId = setInterval(() => {
-      fetchAllBalances();
-    }, 2 * 60 * 1000);
+      if (refreshEnabled) {
+        console.log('Running scheduled balance check (5 minute interval)');
+        fetchAllBalances();
+      }
+    }, REFRESH_INTERVAL);
     
     return () => clearInterval(intervalId);
-  }, [fetchAllBalances]);
+  }, [fetchAllBalances, refreshEnabled]);
 
   // Also refresh whenever wallets change
   useEffect(() => {
-    fetchAllBalances();
+    fetchAllBalances(true); // Force refresh when wallets change
   }, [wallets.length, fetchAllBalances]);
 
   // Remove balances for wallets that no longer exist
@@ -139,6 +168,8 @@ export function useClaimableBalances(wallets: WalletData[], addLog: Function) {
     isLoading,
     lastUpdate,
     fetchAllBalances,
-    removeBalance
+    removeBalance,
+    toggleAutoRefresh,
+    refreshEnabled
   };
 }

@@ -1,4 +1,3 @@
-
 import React, { useEffect } from 'react';
 import { useWalletManager } from '@/hooks/useWalletManager';
 import { useClaimableBalances } from '@/hooks/useClaimableBalances';
@@ -20,7 +19,9 @@ const Index = () => {
     isLoading,
     lastUpdate,
     fetchAllBalances,
-    removeBalance
+    removeBalance,
+    toggleAutoRefresh,
+    refreshEnabled
   } = useClaimableBalances(wallets, addLog);
   
   const {
