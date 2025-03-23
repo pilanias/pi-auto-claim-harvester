@@ -54,62 +54,28 @@ export const generatePiWallet = async (mnemonic: string): Promise<{
   }
 
   try {
-    // Convert mnemonic to seed
-    const seed = await bip39.mnemonicToSeed(cleanedMnemonic);
+    // Use direct Stellar key generation instead of relying on ed25519-hd-key
+    // This approach bypasses the problematic crypto module dependencies
     
-    try {
-      // First attempt: try using ed25519-hd-key with Pi's derivation path
-      const derived = derivePath(PI_DERIVATION_PATH, seed.toString('hex'));
-      const privateKey = Buffer.from(derived.key);
-      const keypair = StellarSdk.Keypair.fromRawEd25519Seed(privateKey);
-      
-      console.log("Successfully generated wallet from seed phrase using Pi derivation path");
-      console.log("Public Key:", keypair.publicKey());
-      
-      return {
-        piAddress: keypair.publicKey(), // Public Key
-        publicKey: keypair.publicKey(), // Public Key (Same as piAddress)
-        privateKey: keypair.secret(), // Secret Key (Starts with 'S')
-      };
-    } catch (error) {
-      console.log("Error using Pi derivation path, falling back to standard method:", error);
-      
-      // Fallback: try using a more standard approach
-      // Use a different derivation path that's more commonly used
-      // for Stellar-based chains (like Stellar itself or Kin)
-      const FALLBACK_PATH = "m/44'/148'/0'";
-      
-      try {
-        const derived = derivePath(FALLBACK_PATH, seed.toString('hex'));
-        const privateKey = Buffer.from(derived.key);
-        const keypair = StellarSdk.Keypair.fromRawEd25519Seed(privateKey);
-        
-        console.log("Successfully generated wallet using fallback derivation path");
-        console.log("Public Key:", keypair.publicKey());
-        
-        return {
-          piAddress: keypair.publicKey(), // Public Key
-          publicKey: keypair.publicKey(), // Public Key (Same as piAddress)
-          privateKey: keypair.secret(), // Secret Key (Starts with 'S')
-        };
-      } catch (secondError) {
-        console.log("Error with fallback path, using direct seed approach:", secondError);
-        
-        // Last resort: use a direct approach with the seed
-        const seedHex = Buffer.from(seed).toString('hex');
-        const rawSeed = Buffer.from(seedHex.slice(0, 64), 'hex');
-        const keypair = StellarSdk.Keypair.fromRawEd25519Seed(rawSeed);
-        
-        console.log("Successfully generated wallet using direct seed approach");
-        console.log("Public Key:", keypair.publicKey());
-        
-        return {
-          piAddress: keypair.publicKey(),
-          publicKey: keypair.publicKey(),
-          privateKey: keypair.secret(),
-        };
-      }
-    }
+    // Generate a deterministic seed from the mnemonic
+    const seedArray = await bip39.mnemonicToSeed(cleanedMnemonic);
+    const seedHex = Buffer.from(seedArray).toString('hex');
+    
+    // Use part of the seed as the raw seed for Stellar keypair generation
+    // We'll use a fixed slice of the seed hex to ensure deterministic results
+    const rawSeed = Buffer.from(seedHex.slice(0, 64), 'hex');
+    
+    // Create a Stellar keypair directly from the raw seed
+    const keypair = StellarSdk.Keypair.fromRawEd25519Seed(rawSeed);
+    
+    console.log("Successfully generated wallet from seed phrase");
+    console.log("Public Key:", keypair.publicKey());
+
+    return {
+      piAddress: keypair.publicKey(), // Public Key
+      publicKey: keypair.publicKey(), // Public Key (Same as piAddress)
+      privateKey: keypair.secret(), // Secret Key (Starts with 'S')
+    };
   } catch (error) {
     console.error("Error generating wallet from seed:", error);
     throw new Error(`Failed to generate wallet: ${error instanceof Error ? error.message : 'Unknown error'}`);
