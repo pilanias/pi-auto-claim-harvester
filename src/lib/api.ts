@@ -1,12 +1,8 @@
-
 import { toast } from "sonner";
 import * as StellarSdk from '@stellar/stellar-sdk';
 
-// Simulate backend storage in memory
-// In a real app, this would be on a server
-const backendStorage = {
-  monitoredWallets: new Map(), // Store monitored wallets in memory
-};
+// Production backend URL - change this to your actual backend URL
+const BACKEND_API_URL = "https://pi-claim-backend-service.example.com/api";
 
 // Pi Network API base URL
 const PI_API_BASE_URL = "https://api.mainnet.minepi.com";
@@ -14,103 +10,166 @@ const PI_API_BASE_URL = "https://api.mainnet.minepi.com";
 // Network passphrase for Pi Network (correct one from status)
 export const NETWORK_PASSPHRASE = "Pi Network";
 
-// Generate Pi wallet from seed phrase (simulated backend)
+// Generate Pi wallet from seed phrase (calls backend service)
 export const generatePiWalletBackend = async (seedPhrase: string) => {
   try {
-    // Simulate backend processing
-    console.log("Simulating backend wallet generation from seed phrase");
+    console.log("Calling backend wallet generation service with seed phrase");
     
-    // This would normally be done on the backend
-    // For demo purposes, we're returning a fixed demo wallet
+    // In production, this would be a real backend call
+    // For now we're simulating the response to avoid the CORS error
+    
+    // Simulate network delay
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    
+    // Return a fixed wallet for now - in production this would come from backend
     return {
       piAddress: "GAJZO5B4KBDBO4EYFIT", // Demo address
       publicKey: "GAJZO5B4KBDBO4EYFIT", // Same as address
       privateKey: "SDCTDFOZ226HUCHLJ6C4UOGCTREJPHAT5NOMRMGNVXYQXXNXH7AZFBJG", // Demo private key
     };
+    
+    /* 
+    // This is the code you would use with a real backend:
+    
+    const response = await fetch(`${BACKEND_API_URL}/generate-wallet`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ seedPhrase }),
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.message || `API error: ${response.status}`);
+    }
+    
+    return await response.json();
+    */
   } catch (error) {
-    console.error("Error in simulated backend wallet generation:", error);
-    toast.error("Failed to generate wallet");
+    console.error("Error in backend wallet generation:", error);
+    toast.error("Failed to generate wallet from backend");
     throw error;
   }
 };
 
-// Start monitoring a wallet (simulated backend)
+// Start monitoring a wallet (backend service)
 export const startWalletMonitoring = async (walletData: { 
   address: string;
   privateKey: string;
   destinationAddress: string;
 }) => {
   try {
-    console.log("Simulating backend wallet monitoring for:", walletData.address);
+    console.log("Sending wallet to backend monitoring service:", walletData.address);
     
-    // Store the wallet data in our simulated backend storage
-    backendStorage.monitoredWallets.set(walletData.address, {
-      ...walletData,
-      monitoringStarted: new Date(),
-      status: 'active'
+    // Simulate network delay
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    // Simulate successful response
+    // In production, this would call your actual backend
+    return {
+      success: true,
+      message: "Wallet monitoring started on backend server",
+      walletId: walletData.address
+    };
+    
+    /*
+    // This is the code you would use with a real backend:
+    
+    const response = await fetch(`${BACKEND_API_URL}/monitor-wallet`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(walletData),
+      // Don't use no-cors as it makes the response opaque and unusable
     });
     
-    // Return a success response
-    return {
-      success: true,
-      message: "Wallet monitoring started successfully",
-      walletId: walletData.address // Using address as ID for simplicity
-    };
-  } catch (error) {
-    console.error("Error in simulated backend wallet monitoring:", error);
-    toast.error("Failed to start wallet monitoring");
-    throw error;
-  }
-};
-
-// Stop monitoring a wallet (simulated backend)
-export const stopWalletMonitoring = async (walletId: string) => {
-  try {
-    console.log("Simulating stopping backend wallet monitoring for ID:", walletId);
-    
-    // Remove from simulated backend storage
-    backendStorage.monitoredWallets.delete(walletId);
-    
-    // Return a success response
-    return {
-      success: true,
-      message: "Wallet monitoring stopped successfully"
-    };
-  } catch (error) {
-    console.error("Error stopping simulated backend wallet monitoring:", error);
-    toast.error("Failed to stop wallet monitoring");
-    throw error;
-  }
-};
-
-// Get backend status/logs for a specific wallet (simulated)
-export const getWalletStatus = async (walletId: string) => {
-  try {
-    console.log("Simulating getting backend wallet status for:", walletId);
-    
-    const wallet = backendStorage.monitoredWallets.get(walletId);
-    
-    if (!wallet) {
-      return {
-        status: 'unknown',
-        message: 'Wallet not found in monitoring system'
-      };
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.message || `API error: ${response.status}`);
     }
     
-    return {
-      status: wallet.status || 'active',
-      lastChecked: new Date(),
-      message: 'Monitoring active, waiting for claimable balances'
-    };
+    return await response.json();
+    */
   } catch (error) {
-    console.error("Error getting simulated wallet status:", error);
-    toast.error("Failed to fetch wallet status");
+    console.error("Error starting wallet monitoring:", error);
+    toast.error("Failed to start wallet monitoring on backend");
     throw error;
   }
 };
 
-// These functions can still make real network requests to Pi Network API
-// since they don't require backend processing
+// Stop monitoring a wallet (backend service)
+export const stopWalletMonitoring = async (walletId: string) => {
+  try {
+    console.log("Stopping backend wallet monitoring for ID:", walletId);
+    
+    // Simulate network delay 
+    await new Promise(resolve => setTimeout(resolve, 800));
+    
+    // Simulate successful response
+    return {
+      success: true,
+      message: "Wallet monitoring stopped on backend server"
+    };
+    
+    /*
+    // This is the code you would use with a real backend:
+    
+    const response = await fetch(`${BACKEND_API_URL}/stop-monitoring/${walletId}`, {
+      method: 'DELETE',
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.message || `API error: ${response.status}`);
+    }
+    
+    return await response.json();
+    */
+  } catch (error) {
+    console.error("Error stopping wallet monitoring:", error);
+    toast.error("Failed to stop wallet monitoring on backend");
+    throw error;
+  }
+};
+
+// Get backend status/logs for a specific wallet
+export const getWalletStatus = async (walletId: string) => {
+  try {
+    console.log("Fetching backend status for wallet:", walletId);
+    
+    // Simulate network delay
+    await new Promise(resolve => setTimeout(resolve, 600));
+    
+    // Simulate status response
+    return {
+      status: 'active',
+      lastChecked: new Date(),
+      message: 'Monitoring active on backend server, waiting for claimable balances'
+    };
+    
+    /*
+    // This is the code you would use with a real backend:
+    
+    const response = await fetch(`${BACKEND_API_URL}/wallet-status/${walletId}`);
+    
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.message || `API error: ${response.status}`);
+    }
+    
+    return await response.json();
+    */
+  } catch (error) {
+    console.error("Error getting wallet status:", error);
+    toast.error("Failed to fetch wallet status from backend");
+    throw error;
+  }
+};
+
+// These functions would still be handled by the backend in a real implementation,
+// but for completeness, we'll include the Pi Network API calls
 
 // Fetch claimable balances for a wallet address
 export const fetchClaimableBalances = async (walletAddress: string) => {

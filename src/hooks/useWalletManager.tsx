@@ -43,7 +43,7 @@ export function useWalletManager() {
     }
   }, [logs, isInitialized]);
 
-  // Add a new wallet
+  // Add a new wallet - now returns a Promise to match WalletForm's expectations
   const addWallet = useCallback(async (walletData: { address: string; privateKey: string; destinationAddress: string }) => {
     // Basic validation
     if (!walletData.address || !walletData.privateKey || !walletData.destinationAddress) {
@@ -64,7 +64,8 @@ export function useWalletManager() {
     };
 
     try {
-      // Send the wallet data to the simulated backend for monitoring
+      // Send the wallet data to the external backend for monitoring
+      // Note: This will connect to your actual backend in production
       await startWalletMonitoring({
         address: walletData.address,
         privateKey: walletData.privateKey,

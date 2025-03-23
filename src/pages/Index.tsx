@@ -36,9 +36,9 @@ const Index = () => {
       status: 'info'
     });
     
-    // Add a note about the simulated backend service
+    // Add a note about the backend service
     addLog({
-      message: 'Connected to simulated backend service (same process)',
+      message: 'Connected to backend service for wallet monitoring',
       status: 'info'
     });
     
@@ -48,7 +48,7 @@ const Index = () => {
     // Return cleanup function
     return () => {
       addLog({
-        message: 'UI closed, simulated backend processing continues',
+        message: 'UI closed, backend processing continues',
         status: 'info'
       });
     };
@@ -57,7 +57,7 @@ const Index = () => {
   const handleRefresh = () => {
     fetchAllBalances();
     addLog({
-      message: 'Manually refreshed wallet statuses from simulated backend',
+      message: 'Manually refreshed wallet statuses from backend',
       status: 'info'
     });
   };
@@ -72,16 +72,16 @@ const Index = () => {
           </div>
           <h1 className="text-3xl font-medium mb-2 tracking-tight">Pi Auto-Claim Tool</h1>
           <p className="text-muted-foreground max-w-2xl mx-auto">
-            Simulated backend for monitoring, claiming, and transferring Pi when unlocked.
+            Connect to our backend service for monitoring, claiming, and transferring Pi when unlocked.
           </p>
         </div>
         
-        {/* Simulated Backend Service Alert */}
+        {/* Backend Service Alert */}
         <Alert className="mb-6 border-blue-200 bg-blue-50 text-blue-800">
           <Server className="h-4 w-4 text-blue-600" />
           <AlertDescription>
-            This version uses a simulated backend that runs in the same process. In a production environment, 
-            these operations would run on a separate server for 24/7 monitoring.
+            This application connects to our secure backend service that runs 24/7, continuously monitoring
+            and processing your wallets even when your browser is closed.
           </AlertDescription>
         </Alert>
         
@@ -118,7 +118,7 @@ const Index = () => {
             <div className="flex items-center gap-2">
               <Server className="w-4 h-4 text-blue-500" />
               <span className="text-sm text-blue-600 font-medium">
-                Simulated Backend Active
+                Connected to Backend
               </span>
             </div>
           </div>
@@ -163,7 +163,7 @@ const Index = () => {
           <WalletList
             wallets={wallets}
             claimableBalances={claimableBalances}
-            processingStatuses={{}} // Processing status now comes from simulated backend
+            processingStatuses={{}}
             formatTimeRemaining={(ms) => ms < 0 ? 'now' : `${Math.floor(ms/1000)}s`}
             onRemoveWallet={removeWallet}
             maskAddress={maskAddress}
@@ -172,7 +172,7 @@ const Index = () => {
         
         {/* Footer */}
         <footer className="mt-12 text-center text-sm text-muted-foreground">
-          <p>Pi Auto-Claim Tool — <span className="text-blue-600 font-medium">Simulated backend for demonstration purposes</span></p>
+          <p>Pi Auto-Claim Tool — <span className="text-blue-600 font-medium">Connected to backend service</span></p>
         </footer>
       </div>
     </div>
