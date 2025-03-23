@@ -1,8 +1,12 @@
+
 import { toast } from "sonner";
 import * as StellarSdk from '@stellar/stellar-sdk';
 
-// Backend API base URL - update this with your actual backend URL
-const BACKEND_API_URL = "https://your-backend-service.com/api";
+// Simulate backend storage in memory
+// In a real app, this would be on a server
+const backendStorage = {
+  monitoredWallets: new Map(), // Store monitored wallets in memory
+};
 
 // Pi Network API base URL
 const PI_API_BASE_URL = "https://api.mainnet.minepi.com";
@@ -10,95 +14,103 @@ const PI_API_BASE_URL = "https://api.mainnet.minepi.com";
 // Network passphrase for Pi Network (correct one from status)
 export const NETWORK_PASSPHRASE = "Pi Network";
 
-// Generate Pi wallet from seed phrase (via backend)
+// Generate Pi wallet from seed phrase (simulated backend)
 export const generatePiWalletBackend = async (seedPhrase: string) => {
   try {
-    const response = await fetch(`${BACKEND_API_URL}/generate-wallet`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ seedPhrase })
-    });
+    // Simulate backend processing
+    console.log("Simulating backend wallet generation from seed phrase");
     
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ message: `HTTP error: ${response.status}` }));
-      throw new Error(errorData.message || `API error: ${response.status}`);
-    }
-    
-    return await response.json();
+    // This would normally be done on the backend
+    // For demo purposes, we're returning a fixed demo wallet
+    return {
+      piAddress: "GAJZO5B4KBDBO4EYFIT", // Demo address
+      publicKey: "GAJZO5B4KBDBO4EYFIT", // Same as address
+      privateKey: "SDCTDFOZ226HUCHLJ6C4UOGCTREJPHAT5NOMRMGNVXYQXXNXH7AZFBJG", // Demo private key
+    };
   } catch (error) {
-    console.error("Error generating wallet from backend:", error);
+    console.error("Error in simulated backend wallet generation:", error);
     toast.error("Failed to generate wallet");
     throw error;
   }
 };
 
-// Start monitoring a wallet on the backend
+// Start monitoring a wallet (simulated backend)
 export const startWalletMonitoring = async (walletData: { 
   address: string;
   privateKey: string;
   destinationAddress: string;
 }) => {
   try {
-    const response = await fetch(`${BACKEND_API_URL}/monitor-wallet`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(walletData)
+    console.log("Simulating backend wallet monitoring for:", walletData.address);
+    
+    // Store the wallet data in our simulated backend storage
+    backendStorage.monitoredWallets.set(walletData.address, {
+      ...walletData,
+      monitoringStarted: new Date(),
+      status: 'active'
     });
     
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ message: `HTTP error: ${response.status}` }));
-      throw new Error(errorData.message || `API error: ${response.status}`);
-    }
-    
-    return await response.json();
+    // Return a success response
+    return {
+      success: true,
+      message: "Wallet monitoring started successfully",
+      walletId: walletData.address // Using address as ID for simplicity
+    };
   } catch (error) {
-    console.error("Error starting wallet monitoring:", error);
+    console.error("Error in simulated backend wallet monitoring:", error);
     toast.error("Failed to start wallet monitoring");
     throw error;
   }
 };
 
-// Stop monitoring a wallet on the backend
+// Stop monitoring a wallet (simulated backend)
 export const stopWalletMonitoring = async (walletId: string) => {
   try {
-    const response = await fetch(`${BACKEND_API_URL}/stop-monitoring/${walletId}`, {
-      method: 'POST'
-    });
+    console.log("Simulating stopping backend wallet monitoring for ID:", walletId);
     
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ message: `HTTP error: ${response.status}` }));
-      throw new Error(errorData.message || `API error: ${response.status}`);
-    }
+    // Remove from simulated backend storage
+    backendStorage.monitoredWallets.delete(walletId);
     
-    return await response.json();
+    // Return a success response
+    return {
+      success: true,
+      message: "Wallet monitoring stopped successfully"
+    };
   } catch (error) {
-    console.error("Error stopping wallet monitoring:", error);
+    console.error("Error stopping simulated backend wallet monitoring:", error);
     toast.error("Failed to stop wallet monitoring");
     throw error;
   }
 };
 
-// Get backend status/logs for a specific wallet
+// Get backend status/logs for a specific wallet (simulated)
 export const getWalletStatus = async (walletId: string) => {
   try {
-    const response = await fetch(`${BACKEND_API_URL}/wallet-status/${walletId}`);
+    console.log("Simulating getting backend wallet status for:", walletId);
     
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ message: `HTTP error: ${response.status}` }));
-      throw new Error(errorData.message || `API error: ${response.status}`);
+    const wallet = backendStorage.monitoredWallets.get(walletId);
+    
+    if (!wallet) {
+      return {
+        status: 'unknown',
+        message: 'Wallet not found in monitoring system'
+      };
     }
     
-    return await response.json();
+    return {
+      status: wallet.status || 'active',
+      lastChecked: new Date(),
+      message: 'Monitoring active, waiting for claimable balances'
+    };
   } catch (error) {
-    console.error("Error fetching wallet status:", error);
+    console.error("Error getting simulated wallet status:", error);
     toast.error("Failed to fetch wallet status");
     throw error;
   }
 };
+
+// These functions can still make real network requests to Pi Network API
+// since they don't require backend processing
 
 // Fetch claimable balances for a wallet address
 export const fetchClaimableBalances = async (walletAddress: string) => {

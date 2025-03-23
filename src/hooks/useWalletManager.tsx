@@ -44,7 +44,7 @@ export function useWalletManager() {
   }, [logs, isInitialized]);
 
   // Add a new wallet
-  const addWallet = useCallback(async (walletData: Omit<WalletData, 'id' | 'added'>) => {
+  const addWallet = useCallback(async (walletData: { address: string; privateKey: string; destinationAddress: string }) => {
     // Basic validation
     if (!walletData.address || !walletData.privateKey || !walletData.destinationAddress) {
       toast.error('All wallet fields are required');
@@ -64,7 +64,7 @@ export function useWalletManager() {
     };
 
     try {
-      // Send the wallet data to the backend for monitoring
+      // Send the wallet data to the simulated backend for monitoring
       await startWalletMonitoring({
         address: walletData.address,
         privateKey: walletData.privateKey,

@@ -37,7 +37,7 @@ export const validateMnemonic = (mnemonic: string): boolean => {
 
 /**
  * Generates a Pi wallet (address and private key) from a mnemonic phrase
- * by calling the backend service
+ * by calling the simulated backend service
  */
 export const generatePiWallet = async (mnemonic: string): Promise<{
   piAddress: string;
@@ -51,21 +51,10 @@ export const generatePiWallet = async (mnemonic: string): Promise<{
   }
 
   try {
-    // Mock response for the demo (in real app, this would call the backend)
-    // This allows us to test the frontend without a live backend
-    // You should replace this with a real API call when the backend is ready
+    // Call our simulated backend function
+    const walletData = await generatePiWalletBackend(cleanedMnemonic);
     
-    // The real backend code for this would be:
-    // const walletData = await generatePiWalletBackend(cleanedMnemonic);
-    
-    // For now, we'll create a simulated response:
-    const walletData = {
-      piAddress: "GAJZO5B4KBDBO4EYFIT", // Demo address
-      publicKey: "GAJZO5B4KBDBO4EYFIT", // Same as address
-      privateKey: "SDCTDFOZ226HUCHLJ6C4UOGCTREJPHAT5NOMRMGNVXYQXXNXH7AZFBJG", // Demo private key
-    };
-    
-    console.log("Successfully generated wallet from seed phrase (simulated)");
+    console.log("Successfully generated wallet from seed phrase via simulated backend");
     console.log("Public Key:", walletData.piAddress);
 
     return {
