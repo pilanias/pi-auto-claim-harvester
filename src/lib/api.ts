@@ -86,7 +86,7 @@ export const submitTransaction = async (xdr: string) => {
         const txCode = responseData.extras.result_codes.transaction;
         if (txCode === "tx_bad_auth") {
           console.error("tx_bad_auth error details:", responseData);
-          throw new Error("Transaction authentication failed. The signature is invalid. Please verify your private key and try again.");
+          throw new Error("Transaction authentication failed. The signature is invalid. Please verify your private key.");
         } else if (txCode === "tx_bad_seq") {
           throw new Error("Incorrect sequence number. Will retry with updated sequence.");
         } else {
