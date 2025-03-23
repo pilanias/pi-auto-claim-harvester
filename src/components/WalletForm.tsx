@@ -1,15 +1,15 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { Wallet, Key, ArrowRight, Plus, AlertCircle, Check, FileText } from 'lucide-react';
+import { Wallet, Key, ArrowRight, Plus, AlertCircle, Check, FileText, Loader2 } from 'lucide-react';
 import * as StellarSdk from 'stellar-sdk';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { validateMnemonic, generatePiWallet } from '@/lib/seedPhrase';
+import { toast } from 'sonner';
 
 interface WalletFormProps {
   onAddWallet: (walletData: { address: string; privateKey: string; destinationAddress: string }) => boolean;
@@ -79,7 +79,7 @@ const WalletForm: React.FC<WalletFormProps> = ({ onAddWallet, className = '' }) 
       setValidationStatus('error');
     }
   }, [privateKey]);
-
+  
   // Validate seed phrase as it's typed
   useEffect(() => {
     if (!seedPhrase.trim()) {
@@ -96,7 +96,7 @@ const WalletForm: React.FC<WalletFormProps> = ({ onAddWallet, className = '' }) 
       return;
     }
 
-    // Use BIP39 to validate
+    // Use our custom validation
     const isValid = validateMnemonic(seedPhrase.trim());
     if (!isValid) {
       setSeedError('Invalid seed phrase. Please check your words and try again.');
@@ -121,10 +121,13 @@ const WalletForm: React.FC<WalletFormProps> = ({ onAddWallet, className = '' }) 
   };
 
   const generateWalletFromSeed = async () => {
-    if (!seedPhrase.trim() || seedError) return;
+    if (!seedPhrase.trim()) return;
     
     setIsGeneratingFromSeed(true);
+    setSeedError(null);
+    
     try {
+      console.log("Attempting to generate wallet from seed phrase...");
       const wallet = await generatePiWallet(seedPhrase.trim());
       setGeneratedWallet(wallet);
       
@@ -133,9 +136,13 @@ const WalletForm: React.FC<WalletFormProps> = ({ onAddWallet, className = '' }) 
       if (!destinationAddress) {
         setDestinationAddress(wallet.piAddress);
       }
+      
+      toast.success("Wallet successfully generated from seed phrase");
     } catch (error) {
+      console.error("Seed phrase wallet generation error:", error);
       setSeedError(`Failed to generate wallet: ${error instanceof Error ? error.message : 'Unknown error'}`);
       setGeneratedWallet(null);
+      toast.error("Failed to generate wallet from seed phrase");
     } finally {
       setIsGeneratingFromSeed(false);
     }
@@ -381,9 +388,16 @@ const WalletForm: React.FC<WalletFormProps> = ({ onAddWallet, className = '' }) 
                   variant="outline" 
                   className="w-full mt-2"
                   onClick={generateWalletFromSeed}
-                  disabled={!!seedError || isGeneratingFromSeed || !seedPhrase.trim()}
+                  disabled={isGeneratingFromSeed || !seedPhrase.trim()}
                 >
-                  {isGeneratingFromSeed ? "Generating..." : "Generate Wallet"}
+                  {isGeneratingFromSeed ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Generating...
+                    </>
+                  ) : (
+                    "Generate Wallet"
+                  )}
                 </Button>
                 
                 {generatedWallet && (
