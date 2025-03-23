@@ -84,9 +84,9 @@ app.listen(PORT, () => {
   // Initialize wallet monitoring
   initWalletMonitoring();
   
-  // Set up cron job to check claimable balances every 5 minutes instead of every minute
-  cron.schedule('*/5 * * * *', () => {
-    console.log('Running scheduled balance check (every 5 minutes)');
+  // Set up cron job to check claimable balances every minute
+  cron.schedule('* * * * *', () => {
+    console.log('Running scheduled balance check');
     // This will trigger balance checks for all monitored wallets
   });
 });

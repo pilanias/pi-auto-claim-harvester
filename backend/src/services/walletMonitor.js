@@ -1,4 +1,3 @@
-
 import cron from 'node-cron';
 import * as StellarSdk from 'stellar-sdk';
 import { v4 as uuidv4 } from 'uuid';
@@ -22,9 +21,6 @@ const claimingTasks = new Map();
 // Claimable balances storage
 let claimableBalancesMap = new Map();
 
-// Monitoring intervals (in minutes)
-const MONITORING_INTERVAL = 5; // Check every 5 minutes
-
 /**
  * Initialize wallet monitoring on server start
  */
@@ -35,8 +31,8 @@ export const initWalletMonitoring = async () => {
     status: 'info'
   });
   
-  // Set up periodic check task (every 5 minutes)
-  cron.schedule(`*/${MONITORING_INTERVAL} * * * *`, checkAllWallets);
+  // Set up periodic check task (every 2 minutes)
+  cron.schedule('*/2 * * * *', checkAllWallets);
 };
 
 /**
@@ -56,15 +52,14 @@ export const startMonitoring = async (wallet) => {
     await checkWalletClaimableBalances(wallet);
     
     // Create a task for this wallet and store it in the map
-    // Reduced frequency: every 5 minutes instead of every 5 seconds
-    const task = cron.schedule(`*/${MONITORING_INTERVAL} * * * *`, async () => {
+    const task = cron.schedule('*/5 * * * *', async () => {
       await checkWalletClaimableBalances(wallet);
     });
     
     monitoringTasks.set(wallet.id, task);
     
     addLog({
-      message: `Wallet monitoring active (checking every ${MONITORING_INTERVAL} minutes): ${wallet.address.substring(0, 6)}...`,
+      message: `Wallet monitoring active: ${wallet.address.substring(0, 6)}...`,
       status: 'success',
       walletId: wallet.id
     });
@@ -139,11 +134,6 @@ const checkWalletClaimableBalances = async (wallet) => {
       status: 'info',
       walletId: wallet.id
     });
-    
-    // Add a simple rate limiting mechanism with a random delay
-    // This helps prevent API hitting limits by spreading requests out
-    const randomDelay = Math.floor(Math.random() * 3000); // Random delay up to 3 seconds
-    await new Promise(resolve => setTimeout(resolve, randomDelay));
     
     // Fetch claimable balances
     const balances = await fetchClaimableBalances(wallet.address);
