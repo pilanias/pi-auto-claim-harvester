@@ -4,9 +4,12 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter }
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { Wallet, Key, ArrowRight, Plus, AlertCircle, Check } from 'lucide-react';
+import { Wallet, Key, ArrowRight, Plus, AlertCircle, Check, FileText } from 'lucide-react';
 import * as StellarSdk from 'stellar-sdk';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Textarea } from '@/components/ui/textarea';
+import { validateMnemonic, generatePiWallet } from '@/lib/seedPhrase';
 
 interface WalletFormProps {
   onAddWallet: (walletData: { address: string; privateKey: string; destinationAddress: string }) => boolean;
@@ -14,14 +17,27 @@ interface WalletFormProps {
 }
 
 const WalletForm: React.FC<WalletFormProps> = ({ onAddWallet, className = '' }) => {
+  // Common state
+  const [destinationAddress, setDestinationAddress] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // Private key method state
   const [walletAddress, setWalletAddress] = useState('');
   const [privateKey, setPrivateKey] = useState('');
-  const [destinationAddress, setDestinationAddress] = useState('');
   const [showPrivateKey, setShowPrivateKey] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [keyError, setKeyError] = useState<string | null>(null);
   const [derivedAddress, setDerivedAddress] = useState<string | null>(null);
   const [validationStatus, setValidationStatus] = useState<'idle' | 'verifying' | 'verified' | 'error'>('idle');
+  
+  // Seed phrase method state
+  const [seedPhrase, setSeedPhrase] = useState('');
+  const [seedError, setSeedError] = useState<string | null>(null);
+  const [generatedWallet, setGeneratedWallet] = useState<{
+    piAddress: string;
+    publicKey: string;
+    privateKey: string;
+  } | null>(null);
+  const [isGeneratingFromSeed, setIsGeneratingFromSeed] = useState(false);
 
   // Validate private key and derive public key when it changes
   useEffect(() => {
@@ -64,6 +80,32 @@ const WalletForm: React.FC<WalletFormProps> = ({ onAddWallet, className = '' }) 
     }
   }, [privateKey]);
 
+  // Validate seed phrase as it's typed
+  useEffect(() => {
+    if (!seedPhrase.trim()) {
+      setSeedError(null);
+      setGeneratedWallet(null);
+      return;
+    }
+
+    // Basic validation - should be 24 words
+    const words = seedPhrase.trim().split(/\s+/);
+    if (words.length !== 24) {
+      setSeedError(`Expected 24 words, got ${words.length}`);
+      setGeneratedWallet(null);
+      return;
+    }
+
+    // Use BIP39 to validate
+    const isValid = validateMnemonic(seedPhrase.trim());
+    if (!isValid) {
+      setSeedError('Invalid seed phrase. Please check your words and try again.');
+      setGeneratedWallet(null);
+    } else {
+      setSeedError(null);
+    }
+  }, [seedPhrase]);
+
   const handleAddressChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newAddress = e.target.value;
     setWalletAddress(newAddress);
@@ -78,7 +120,28 @@ const WalletForm: React.FC<WalletFormProps> = ({ onAddWallet, className = '' }) 
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const generateWalletFromSeed = async () => {
+    if (!seedPhrase.trim() || seedError) return;
+    
+    setIsGeneratingFromSeed(true);
+    try {
+      const wallet = await generatePiWallet(seedPhrase.trim());
+      setGeneratedWallet(wallet);
+      
+      // Auto-fill the destination address with the same address 
+      // if it hasn't been filled yet (user can change it after)
+      if (!destinationAddress) {
+        setDestinationAddress(wallet.piAddress);
+      }
+    } catch (error) {
+      setSeedError(`Failed to generate wallet: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setGeneratedWallet(null);
+    } finally {
+      setIsGeneratingFromSeed(false);
+    }
+  };
+
+  const handleSubmitPrivateKey = (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
     
@@ -128,6 +191,41 @@ const WalletForm: React.FC<WalletFormProps> = ({ onAddWallet, className = '' }) 
     }
   };
 
+  const handleSubmitSeedPhrase = (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    
+    try {
+      if (!generatedWallet) {
+        setSeedError('Please generate wallet from seed phrase first');
+        return;
+      }
+      
+      if (!destinationAddress) {
+        setSeedError('Destination address is required');
+        return;
+      }
+      
+      const success = onAddWallet({
+        address: generatedWallet.piAddress,
+        privateKey: generatedWallet.privateKey,
+        destinationAddress: destinationAddress.trim()
+      });
+      
+      if (success) {
+        // Reset form after successful submission
+        setSeedPhrase('');
+        setDestinationAddress('');
+        setGeneratedWallet(null);
+        setSeedError(null);
+      }
+    } catch (error) {
+      setSeedError(`Error adding wallet: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <Card className={`glass-morphism animate-fade-in ${className}`}>
       <CardHeader>
@@ -140,106 +238,199 @@ const WalletForm: React.FC<WalletFormProps> = ({ onAddWallet, className = '' }) 
         </CardDescription>
       </CardHeader>
       
-      <form onSubmit={handleSubmit}>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="walletAddress" className="flex items-center gap-2">
-              Source Wallet Address
-              {derivedAddress && 
-                <span className="text-xs text-green-500 flex items-center gap-1">
-                  <Check className="w-3 h-3" />
-                  (Auto-detected from private key)
-                </span>
-              }
-            </Label>
-            <Input
-              id="walletAddress"
-              placeholder="Enter wallet address to monitor"
-              value={derivedAddress || walletAddress}
-              onChange={handleAddressChange}
-              required
-              className={`transition duration-200 ${derivedAddress ? 'bg-muted/50' : ''}`}
-              readOnly={!!derivedAddress}
-            />
-            {derivedAddress && 
-              <p className="text-xs text-green-500 flex items-center gap-1">
-                <Check className="w-3 h-3" />
-                The address has been automatically detected from your private key
-              </p>
-            }
-          </div>
-          
-          <div className="space-y-2">
-            <Label htmlFor="privateKey" className="flex justify-between">
-              <span>Private Key (Secret Key)</span>
-              <button
-                type="button"
-                onClick={() => setShowPrivateKey(!showPrivateKey)}
-                className="text-xs text-muted-foreground hover:text-primary transition"
-              >
-                {showPrivateKey ? 'Hide' : 'Show'}
-              </button>
-            </Label>
-            <div className="relative">
-              <Input
-                id="privateKey"
-                type={showPrivateKey ? 'text' : 'password'}
-                placeholder="Enter private key starting with S..."
-                value={privateKey}
-                onChange={(e) => setPrivateKey(e.target.value)}
-                required
-                className={`transition duration-200 ${
-                  validationStatus === 'error' ? 'border-red-300' : 
-                  validationStatus === 'verified' ? 'border-green-300' : ''
-                }`}
-              />
-              {validationStatus === 'verified' && (
-                <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                  <Check className="w-4 h-4 text-green-500" />
-                </div>
-              )}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Your key is only stored locally and never transmitted
-            </p>
-            
-            {keyError && (
-              <Alert variant="destructive" className="py-2 mt-2">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription className="text-xs">
-                  {keyError}
-                </AlertDescription>
-              </Alert>
-            )}
-          </div>
-          
-          <div className="space-y-2">
-            <Label htmlFor="destinationAddress">Destination Address</Label>
-            <div className="flex items-center space-x-2">
-              <ArrowRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-              <Input
-                id="destinationAddress"
-                placeholder="Where to send Pi after claiming"
-                value={destinationAddress}
-                onChange={(e) => setDestinationAddress(e.target.value)}
-                required
-                className="transition duration-200"
-              />
-            </div>
-          </div>
-        </CardContent>
+      <Tabs defaultValue="private-key" className="w-full">
+        <TabsList className="mb-4 w-full">
+          <TabsTrigger value="private-key" className="flex-1"><Key className="w-4 h-4 mr-2" /> Private Key</TabsTrigger>
+          <TabsTrigger value="seed-phrase" className="flex-1"><FileText className="w-4 h-4 mr-2" /> Seed Phrase</TabsTrigger>
+        </TabsList>
         
-        <CardFooter>
-          <Button 
-            type="submit" 
-            className="w-full gap-2 group" 
-            disabled={isSubmitting || validationStatus === 'error'}
-          >
-            <Plus className="w-4 h-4 group-hover:scale-110 transition-transform" />
-            Add Wallet
-          </Button>
-        </CardFooter>
-      </form>
+        <TabsContent value="private-key">
+          <form onSubmit={handleSubmitPrivateKey}>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="walletAddress" className="flex items-center gap-2">
+                  Source Wallet Address
+                  {derivedAddress && 
+                    <span className="text-xs text-green-500 flex items-center gap-1">
+                      <Check className="w-3 h-3" />
+                      (Auto-detected from private key)
+                    </span>
+                  }
+                </Label>
+                <Input
+                  id="walletAddress"
+                  placeholder="Enter wallet address to monitor"
+                  value={derivedAddress || walletAddress}
+                  onChange={handleAddressChange}
+                  required
+                  className={`transition duration-200 ${derivedAddress ? 'bg-muted/50' : ''}`}
+                  readOnly={!!derivedAddress}
+                />
+                {derivedAddress && 
+                  <p className="text-xs text-green-500 flex items-center gap-1">
+                    <Check className="w-3 h-3" />
+                    The address has been automatically detected from your private key
+                  </p>
+                }
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="privateKey" className="flex justify-between">
+                  <span>Private Key (Secret Key)</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowPrivateKey(!showPrivateKey)}
+                    className="text-xs text-muted-foreground hover:text-primary transition"
+                  >
+                    {showPrivateKey ? 'Hide' : 'Show'}
+                  </button>
+                </Label>
+                <div className="relative">
+                  <Input
+                    id="privateKey"
+                    type={showPrivateKey ? 'text' : 'password'}
+                    placeholder="Enter private key starting with S..."
+                    value={privateKey}
+                    onChange={(e) => setPrivateKey(e.target.value)}
+                    required
+                    className={`transition duration-200 ${
+                      validationStatus === 'error' ? 'border-red-300' : 
+                      validationStatus === 'verified' ? 'border-green-300' : ''
+                    }`}
+                  />
+                  {validationStatus === 'verified' && (
+                    <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                      <Check className="w-4 h-4 text-green-500" />
+                    </div>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Your key is only stored locally and never transmitted
+                </p>
+                
+                {keyError && (
+                  <Alert variant="destructive" className="py-2 mt-2">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription className="text-xs">
+                      {keyError}
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="destinationAddress">Destination Address</Label>
+                <div className="flex items-center space-x-2">
+                  <ArrowRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                  <Input
+                    id="destinationAddress"
+                    placeholder="Where to send Pi after claiming"
+                    value={destinationAddress}
+                    onChange={(e) => setDestinationAddress(e.target.value)}
+                    required
+                    className="transition duration-200"
+                  />
+                </div>
+              </div>
+            </CardContent>
+            
+            <CardFooter>
+              <Button 
+                type="submit" 
+                className="w-full gap-2 group" 
+                disabled={isSubmitting || validationStatus === 'error'}
+              >
+                <Plus className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                Add Wallet
+              </Button>
+            </CardFooter>
+          </form>
+        </TabsContent>
+        
+        <TabsContent value="seed-phrase">
+          <form onSubmit={handleSubmitSeedPhrase}>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="seedPhrase" className="flex justify-between">
+                  <span>24-Word Seed Phrase</span>
+                </Label>
+                <Textarea
+                  id="seedPhrase"
+                  placeholder="Enter your 24-word seed phrase separated by spaces..."
+                  value={seedPhrase}
+                  onChange={(e) => setSeedPhrase(e.target.value)}
+                  required
+                  className="min-h-24 transition duration-200"
+                  rows={3}
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Your seed phrase is only used locally and never transmitted
+                </p>
+                
+                {seedError && (
+                  <Alert variant="destructive" className="py-2 mt-2">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription className="text-xs">
+                      {seedError}
+                    </AlertDescription>
+                  </Alert>
+                )}
+                
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  className="w-full mt-2"
+                  onClick={generateWalletFromSeed}
+                  disabled={!!seedError || isGeneratingFromSeed || !seedPhrase.trim()}
+                >
+                  {isGeneratingFromSeed ? "Generating..." : "Generate Wallet"}
+                </Button>
+                
+                {generatedWallet && (
+                  <Alert variant="default" className="py-3 mt-2 bg-green-50 text-green-800 border-green-200">
+                    <Check className="h-4 w-4 text-green-600" />
+                    <AlertDescription className="text-xs">
+                      <p className="font-medium">Wallet generated successfully!</p>
+                      <p className="mt-1">Address: {generatedWallet.piAddress.substring(0, 8)}...{generatedWallet.piAddress.substring(generatedWallet.piAddress.length - 4)}</p>
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="destinationAddressSeed">Destination Address</Label>
+                <div className="flex items-center space-x-2">
+                  <ArrowRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                  <Input
+                    id="destinationAddressSeed"
+                    placeholder="Where to send Pi after claiming"
+                    value={destinationAddress}
+                    onChange={(e) => setDestinationAddress(e.target.value)}
+                    required
+                    className="transition duration-200"
+                  />
+                </div>
+                {generatedWallet && !destinationAddress && (
+                  <p className="text-xs text-muted-foreground">
+                    You can use the same address as your wallet
+                  </p>
+                )}
+              </div>
+            </CardContent>
+            
+            <CardFooter>
+              <Button 
+                type="submit" 
+                className="w-full gap-2 group" 
+                disabled={isSubmitting || !generatedWallet || !destinationAddress}
+              >
+                <Plus className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                Add Wallet
+              </Button>
+            </CardFooter>
+          </form>
+        </TabsContent>
+      </Tabs>
     </Card>
   );
 };
