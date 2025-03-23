@@ -72,7 +72,7 @@ const Index = () => {
           </div>
           <h1 className="text-3xl font-medium mb-2 tracking-tight">Pi Auto-Claim Tool</h1>
           <p className="text-muted-foreground max-w-2xl mx-auto">
-            Connect to our backend service for monitoring, claiming, and transferring Pi when unlocked.
+            Monitor, claim, and transfer Pi when unlocked using our backend service.
           </p>
         </div>
         
@@ -80,8 +80,8 @@ const Index = () => {
         <Alert className="mb-6 border-blue-200 bg-blue-50 text-blue-800">
           <Server className="h-4 w-4 text-blue-600" />
           <AlertDescription>
-            This application connects to our secure backend service that runs 24/7, continuously monitoring
-            and processing your wallets even when your browser is closed.
+            This application requires a backend service to monitor your wallets 24/7. 
+            The backend server should be hosted separately for production use.
           </AlertDescription>
         </Alert>
         
@@ -147,7 +147,10 @@ const Index = () => {
         {/* Main Content */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
           {/* Wallet Form */}
-          <WalletForm onAddWallet={addWallet} className="lg:col-span-1" />
+          <WalletForm 
+            onAddWallet={addWallet} 
+            className="lg:col-span-1" 
+          />
           
           {/* Logs */}
           <LogDisplay 
@@ -172,7 +175,7 @@ const Index = () => {
         
         {/* Footer */}
         <footer className="mt-12 text-center text-sm text-muted-foreground">
-          <p>Pi Auto-Claim Tool — <span className="text-blue-600 font-medium">Connected to backend service</span></p>
+          <p>Pi Auto-Claim Tool — <span className="text-blue-600">Backend must be hosted separately</span></p>
         </footer>
       </div>
     </div>
