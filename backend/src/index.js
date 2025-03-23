@@ -34,12 +34,7 @@ const corsOptions = {
       'http://127.0.0.1:3000'
     ];
     
-    // Log the origin to help debug
-    console.log('Request origin:', origin);
-    console.log('Allowed origins:', allowedOrigins);
-    console.log('CORS_ORIGIN env value:', process.env.CORS_ORIGIN);
-    
-    if (allowedOrigins.includes(origin) || origin.includes('lovableproject.com')) {
+    if (allowedOrigins.includes(origin) || !origin) {
       callback(null, true);
     } else {
       console.log('CORS blocked origin:', origin);
@@ -56,23 +51,14 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 
-// Set explicit CORS headers for all responses
+// Log all requests
 app.use((req, res, next) => {
-  // Log all requests
   console.log(`${new Date().toISOString()} [${req.method}] ${req.url} - Origin: ${req.headers.origin || 'unknown'}`);
-  
-  // Set CORS headers directly
-  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
-  res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
-  }
-  
   next();
 });
+
+// CORS preflight handler for all routes
+app.options('*', cors(corsOptions));
 
 // Routes
 app.use('/api', walletRoutes);

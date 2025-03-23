@@ -1,4 +1,3 @@
-
 import express from 'express';
 import { fetchClaimableBalances } from '../services/piNetworkApi.js';
 import { getAllClaimableBalances, getWalletClaimableBalances, removeClaimableBalance } from '../services/walletMonitor.js';
@@ -6,55 +5,21 @@ import { fetchSequenceNumber } from '../services/piNetworkApi.js';
 
 const router = express.Router();
 
-// Simple in-memory cache for claimable balances with request timestamp tracking
+// Simple in-memory cache for claimable balances
 const balanceCache = new Map();
-const requestTimestamps = new Map(); // Track request timestamps by address
 const CACHE_TTL = 3 * 60 * 1000; // 3 minutes cache TTL
-const REQUEST_LIMIT = 30 * 1000; // Minimum 30 seconds between requests for the same address
 
-// Get claimable balances for a wallet with caching and rate limiting
+// Get claimable balances for a wallet with caching
 router.get('/claimable-balances/:address', async (req, res) => {
   try {
-    // Set CORS headers for this specific route
-    res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
-    res.header('Access-Control-Allow-Methods', 'GET');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    
     const address = req.params.address;
-    const requestTime = Date.now();
     
-    // Check if we've had a recent request for this address to prevent hammering
-    const lastRequestTime = requestTimestamps.get(address) || 0;
-    const timeSinceLastRequest = requestTime - lastRequestTime;
-    
-    if (timeSinceLastRequest < REQUEST_LIMIT) {
-      console.log(`Rate limit applied for ${address.substring(0, 6)}... (${Math.floor(timeSinceLastRequest/1000)}s since last request)`);
-      
-      // Check if we have a valid cache entry we can return
-      const cacheKey = `balances-${address}`;
-      const cachedData = balanceCache.get(cacheKey);
-      
-      if (cachedData && (requestTime - cachedData.timestamp < CACHE_TTL)) {
-        console.log(`Serving cached balances for ${address.substring(0, 6)}... (age: ${Math.floor((requestTime - cachedData.timestamp)/1000)}s)`);
-        return res.json(cachedData.data);
-      }
-      
-      // If we don't have a cache entry but we're being rate limited, return a 429
-      return res.status(429).json({
-        message: 'Too many requests, please wait at least 30 seconds between balance checks',
-        retryAfter: Math.ceil((REQUEST_LIMIT - timeSinceLastRequest) / 1000)
-      });
-    }
-    
-    // Update request timestamp for rate limiting
-    requestTimestamps.set(address, requestTime);
-    
-    // Check cache
+    // Check cache first
     const cacheKey = `balances-${address}`;
     const cachedData = balanceCache.get(cacheKey);
     
-    if (cachedData && (requestTime - cachedData.timestamp < CACHE_TTL)) {
-      console.log(`Serving cached balances for ${address.substring(0, 6)}... (age: ${Math.floor((requestTime - cachedData.timestamp)/1000)}s)`);
+    if (cachedData && (Date.now() - cachedData.timestamp < CACHE_TTL)) {
+      console.log(`Serving cached balances for ${address.substring(0, 6)}... (age: ${Math.floor((Date.now() - cachedData.timestamp)/1000)}s)`);
       return res.json(cachedData.data);
     }
     
@@ -65,7 +30,7 @@ router.get('/claimable-balances/:address', async (req, res) => {
     // Update cache
     balanceCache.set(cacheKey, {
       data: balances,
-      timestamp: requestTime
+      timestamp: Date.now()
     });
     
     res.json(balances);
@@ -138,8 +103,6 @@ router.delete('/cache/:address', (req, res) => {
     
     if (balanceCache.has(cacheKey)) {
       balanceCache.delete(cacheKey);
-      // Also clear rate limit entry
-      requestTimestamps.delete(address);
       res.json({ message: `Cache cleared for address ${address.substring(0, 6)}...` });
     } else {
       res.json({ message: 'No cache entry found' });

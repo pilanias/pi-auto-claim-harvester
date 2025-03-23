@@ -1,4 +1,3 @@
-
 import React, { useEffect } from 'react';
 import { useWalletManager } from '@/hooks/useWalletManager';
 import { useClaimableBalances } from '@/hooks/useClaimableBalances';
@@ -63,21 +62,19 @@ const Index = () => {
     });
   };
 
-  // Fix the TS error by making the function return a boolean directly
-  // WalletForm expects a synchronous boolean return
-  const handleAddWallet = (walletData: {
+  // Wrapper function to handle the promise from addWallet
+  const handleAddWallet = async (walletData: {
     address: string;
     privateKey: string;
     destinationAddress: string;
   }) => {
-    // Call addWallet but don't wait for it to resolve
-    addWallet(walletData)
-      .catch(error => {
-        console.error('Error in handleAddWallet:', error);
-      });
-      
-    // Return true synchronously to let WalletForm know the operation started
-    return true;
+    try {
+      const result = await addWallet(walletData);
+      return result;
+    } catch (error) {
+      console.error('Error in handleAddWallet:', error);
+      return false;
+    }
   };
 
   return (
