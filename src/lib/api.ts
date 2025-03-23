@@ -59,31 +59,38 @@ export const fetchSequenceNumber = async (sourceAddress: string) => {
   }
 };
 
-// Generate transaction hash from XDR
+// Generate transaction hash from XDR - FIXED TO MATCH STELLAR LAB EXACTLY
 export const getTransactionHash = (xdr: string): string => {
   try {
+    // Parse the transaction from XDR string
     const transaction = StellarSdk.TransactionBuilder.fromXDR(xdr, NETWORK_PASSPHRASE);
-    return transaction.hash().toString('hex');
+    
+    // Get hash in the exact same way as Stellar Lab
+    const tx = new StellarSdk.Transaction(transaction.toEnvelope(), NETWORK_PASSPHRASE);
+    return tx.hash().toString('hex');
   } catch (error) {
     console.error("Error generating transaction hash:", error);
     throw new Error(`Failed to generate transaction hash: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 };
 
-// Sign transaction with key (like Stellar Lab)
+// Sign transaction with key (exactly like Stellar Lab)
 export const signTransaction = (xdr: string, secretKey: string): string => {
   try {
-    // Parse the transaction from XDR
-    const transaction = StellarSdk.TransactionBuilder.fromXDR(xdr, NETWORK_PASSPHRASE);
+    // Parse the transaction from XDR exactly as Stellar Lab does
+    const tx = new StellarSdk.Transaction(
+      StellarSdk.xdr.TransactionEnvelope.fromXDR(xdr, 'base64'), 
+      NETWORK_PASSPHRASE
+    );
     
     // Create keypair from secret key
     const keyPair = StellarSdk.Keypair.fromSecret(secretKey);
     
-    // Sign the transaction (this modifies the transaction in-place)
-    transaction.sign(keyPair);
+    // Sign the transaction using the exact same approach as Stellar Lab
+    tx.sign(keyPair);
     
     // Convert back to XDR
-    return transaction.toXDR();
+    return tx.toEnvelope().toXDR('base64');
   } catch (error) {
     console.error("Error signing transaction:", error);
     throw new Error(`Failed to sign transaction: ${error instanceof Error ? error.message : 'Unknown error'}`);
