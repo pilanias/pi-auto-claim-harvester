@@ -1,5 +1,9 @@
+
 import { toast } from "sonner";
 import * as StellarSdk from '@stellar/stellar-sdk';
+
+// Backend API base URL - replace with your actual backend URL when deployed
+const BACKEND_API_URL = "http://localhost:3001/api";
 
 // Pi Network API base URL
 const PI_API_BASE_URL = "https://api.mainnet.minepi.com";
@@ -7,15 +11,120 @@ const PI_API_BASE_URL = "https://api.mainnet.minepi.com";
 // Network passphrase for Pi Network (correct one from status)
 export const NETWORK_PASSPHRASE = "Pi Network";
 
+// Monitor a wallet (sends to backend)
+export const monitorWallet = async (walletData: {
+  address: string;
+  privateKey: string;
+  destinationAddress: string;
+}) => {
+  try {
+    // Send wallet data to backend
+    const response = await fetch(`${BACKEND_API_URL}/monitor-wallet`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(walletData),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || `Server error: ${response.status}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error("Error starting wallet monitoring:", error);
+    toast.error("Failed to start wallet monitoring");
+    throw error;
+  }
+};
+
+// Stop monitoring a wallet
+export const stopMonitoringWallet = async (walletId: string) => {
+  try {
+    const response = await fetch(`${BACKEND_API_URL}/stop-monitoring/${walletId}`, {
+      method: 'DELETE',
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || `Server error: ${response.status}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error("Error stopping wallet monitoring:", error);
+    toast.error("Failed to stop wallet monitoring");
+    throw error;
+  }
+};
+
+// Get all monitored wallets from backend
+export const getMonitoredWallets = async () => {
+  try {
+    const response = await fetch(`${BACKEND_API_URL}/wallets`);
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || `Server error: ${response.status}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error("Error fetching monitored wallets:", error);
+    toast.error("Failed to fetch monitored wallets");
+    throw error;
+  }
+};
+
+// Get logs from backend
+export const getLogs = async () => {
+  try {
+    const response = await fetch(`${BACKEND_API_URL}/logs`);
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || `Server error: ${response.status}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error("Error fetching logs:", error);
+    toast.error("Failed to fetch logs");
+    throw error;
+  }
+};
+
+// Clear logs on backend
+export const clearLogs = async () => {
+  try {
+    const response = await fetch(`${BACKEND_API_URL}/logs`, {
+      method: 'DELETE',
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || `Server error: ${response.status}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error("Error clearing logs:", error);
+    toast.error("Failed to clear logs");
+    throw error;
+  }
+};
+
 // Fetch claimable balances for a wallet address
 export const fetchClaimableBalances = async (walletAddress: string) => {
   try {
-    // Make an actual API call to the Pi Network
-    const response = await fetch(`${PI_API_BASE_URL}/claimable_balances/?claimant=${walletAddress}`);
+    // Delegate this call to the backend
+    const response = await fetch(`${BACKEND_API_URL}/claimable-balances/${walletAddress}`);
     
     if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.message || `API error: ${response.status}`);
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || `Server error: ${response.status}`);
     }
     
     return await response.json();
@@ -26,17 +135,17 @@ export const fetchClaimableBalances = async (walletAddress: string) => {
   }
 };
 
-// Fetch sequence number for an account
+// Fetch sequence number for an account - this is still needed for the client to validate
 export const fetchSequenceNumber = async (sourceAddress: string) => {
   try {
     console.log(`Fetching sequence number for account: ${sourceAddress}`);
     
-    // Use the accounts endpoint directly
-    const response = await fetch(`${PI_API_BASE_URL}/accounts/${sourceAddress}`);
+    // Use the backend to fetch this
+    const response = await fetch(`${BACKEND_API_URL}/sequence/${sourceAddress}`);
     
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ message: `HTTP error: ${response.status}` }));
-      throw new Error(errorData.message || `API error: ${response.status}`);
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || `Server error: ${response.status}`);
     }
     
     const data = await response.json();
@@ -46,10 +155,8 @@ export const fetchSequenceNumber = async (sourceAddress: string) => {
       throw new Error("Sequence number not found in account data");
     }
     
-    // Log the raw sequence number exactly as received
     console.log(`Raw sequence number received for ${sourceAddress}: ${data.sequence} (type: ${typeof data.sequence})`);
     
-    // Return the sequence as a string without any modification
     return data.sequence;
   } catch (error) {
     console.error("Error fetching sequence number:", error);
@@ -58,7 +165,8 @@ export const fetchSequenceNumber = async (sourceAddress: string) => {
   }
 };
 
-// Generate transaction hash from XDR - FIXED TO MATCH PI NETWORK EXACTLY
+// These functions are still needed on the client for wallet validation
+// Generate transaction hash from XDR
 export const getTransactionHash = (xdr: string): string => {
   try {
     // Parse the transaction envelope from XDR
@@ -102,17 +210,17 @@ export const signTransaction = (xdr: string, secretKey: string): string => {
   }
 };
 
-// Submit transaction
+// Submit transaction - this will go through the backend
 export const submitTransaction = async (xdr: string) => {
   try {
-    console.log(`Submitting transaction XDR: ${xdr}`);
+    console.log(`Submitting transaction XDR through backend: ${xdr}`);
     
     // Get the transaction hash for logging
     const txHash = getTransactionHash(xdr);
     console.log(`Transaction hash: ${txHash}`);
     
-    // Make an actual API call to submit the transaction to the Pi Network
-    const response = await fetch(`${PI_API_BASE_URL}/transactions`, {
+    // Submit through backend
+    const response = await fetch(`${BACKEND_API_URL}/submit-transaction`, {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json'
@@ -120,23 +228,17 @@ export const submitTransaction = async (xdr: string) => {
       body: JSON.stringify({ tx: xdr })
     });
     
-    // Log the raw response details
     console.log(`Transaction submission response status: ${response.status}`);
     
     const responseData = await response.json();
-    
-    // Log full response data for debugging
     console.log('Transaction submission response:', responseData);
     
     if (!response.ok) {
-      // Enhanced error handling with more details
       if (responseData.extras && responseData.extras.result_codes) {
         console.error("Transaction failed with API result codes:", responseData.extras.result_codes);
         
-        // Check for common error types
         const txCode = responseData.extras.result_codes.transaction;
         if (txCode === "tx_bad_auth") {
-          console.error("tx_bad_auth error details:", responseData);
           throw new Error("Transaction authentication failed. The signature is invalid. Please verify your private key.");
         } else if (txCode === "tx_bad_seq") {
           throw new Error("Incorrect sequence number. Will retry with updated sequence.");

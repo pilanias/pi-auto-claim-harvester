@@ -37,14 +37,8 @@ const Index = () => {
   // Log component mount
   useEffect(() => {
     addLog({
-      message: 'Pi Auto-Claim Tool started',
+      message: 'Pi Auto-Claim Tool frontend started',
       status: 'info'
-    });
-    
-    // Add a warning that this is a simulated environment
-    addLog({
-      message: 'This is a demonstration. Transactions are simulated.',
-      status: 'warning'
     });
     
     // Set page title
@@ -53,7 +47,7 @@ const Index = () => {
     // Return cleanup function
     return () => {
       addLog({
-        message: 'UI closed, background processes will continue',
+        message: 'Frontend UI closed, background processes will continue on server',
         status: 'info'
       });
     };
@@ -77,7 +71,7 @@ const Index = () => {
           </div>
           <h1 className="text-3xl font-medium mb-2 tracking-tight">Pi Auto-Claim Tool</h1>
           <p className="text-muted-foreground max-w-2xl mx-auto">
-            Automatically monitor, claim, and transfer Pi when unlocked. The tool runs continuously even when the UI is closed.
+            Automatically monitor, claim, and transfer Pi when unlocked. The tool runs continuously on a backend server even when this UI is closed.
           </p>
         </div>
         
@@ -159,7 +153,7 @@ const Index = () => {
         
         {/* Footer */}
         <footer className="mt-12 text-center text-sm text-muted-foreground">
-          <p>Pi Auto-Claim Tool — Transactions continue processing even when this UI is closed.</p>
+          <p>Pi Auto-Claim Tool — Backend server continues processing even when this UI is closed.</p>
         </footer>
       </div>
     </div>
