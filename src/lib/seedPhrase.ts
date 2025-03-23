@@ -1,16 +1,12 @@
 
 import * as bip39 from "bip39";
-import { derivePath } from "ed25519-hd-key";
-import * as StellarSdk from '@stellar/stellar-sdk';
+import { generatePiWalletBackend } from "./api";
 
-// Add Buffer polyfill for browser environment
+// Add Buffer polyfill for browser environment (still needed for validation)
 import { Buffer } from 'buffer';
 
-// Make Buffer globally available
+// Make Buffer globally available for validation
 window.Buffer = Buffer;
-
-// Pi Network specific derivation path
-const PI_DERIVATION_PATH = "m/44'/314159'/0'";
 
 /**
  * Validates a mnemonic phrase (seed phrase)
@@ -41,6 +37,7 @@ export const validateMnemonic = (mnemonic: string): boolean => {
 
 /**
  * Generates a Pi wallet (address and private key) from a mnemonic phrase
+ * by calling the backend service
  */
 export const generatePiWallet = async (mnemonic: string): Promise<{
   piAddress: string;
@@ -54,27 +51,16 @@ export const generatePiWallet = async (mnemonic: string): Promise<{
   }
 
   try {
-    // Use direct Stellar key generation instead of relying on ed25519-hd-key
-    // This approach bypasses the problematic crypto module dependencies
+    // Call the backend API to generate the wallet
+    const walletData = await generatePiWalletBackend(cleanedMnemonic);
     
-    // Generate a deterministic seed from the mnemonic
-    const seedArray = await bip39.mnemonicToSeed(cleanedMnemonic);
-    const seedHex = Buffer.from(seedArray).toString('hex');
-    
-    // Use part of the seed as the raw seed for Stellar keypair generation
-    // We'll use a fixed slice of the seed hex to ensure deterministic results
-    const rawSeed = Buffer.from(seedHex.slice(0, 64), 'hex');
-    
-    // Create a Stellar keypair directly from the raw seed
-    const keypair = StellarSdk.Keypair.fromRawEd25519Seed(rawSeed);
-    
-    console.log("Successfully generated wallet from seed phrase");
-    console.log("Public Key:", keypair.publicKey());
+    console.log("Successfully generated wallet from seed phrase via backend");
+    console.log("Public Key:", walletData.piAddress);
 
     return {
-      piAddress: keypair.publicKey(), // Public Key
-      publicKey: keypair.publicKey(), // Public Key (Same as piAddress)
-      privateKey: keypair.secret(), // Secret Key (Starts with 'S')
+      piAddress: walletData.piAddress,
+      publicKey: walletData.publicKey,
+      privateKey: walletData.privateKey,
     };
   } catch (error) {
     console.error("Error generating wallet from seed:", error);

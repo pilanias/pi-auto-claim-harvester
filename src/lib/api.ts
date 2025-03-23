@@ -1,11 +1,104 @@
 import { toast } from "sonner";
 import * as StellarSdk from '@stellar/stellar-sdk';
 
+// Backend API base URL - update this with your actual backend URL
+const BACKEND_API_URL = "https://your-backend-service.com/api";
+
 // Pi Network API base URL
 const PI_API_BASE_URL = "https://api.mainnet.minepi.com";
 
 // Network passphrase for Pi Network (correct one from status)
 export const NETWORK_PASSPHRASE = "Pi Network";
+
+// Generate Pi wallet from seed phrase (via backend)
+export const generatePiWalletBackend = async (seedPhrase: string) => {
+  try {
+    const response = await fetch(`${BACKEND_API_URL}/generate-wallet`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ seedPhrase })
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: `HTTP error: ${response.status}` }));
+      throw new Error(errorData.message || `API error: ${response.status}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error("Error generating wallet from backend:", error);
+    toast.error("Failed to generate wallet");
+    throw error;
+  }
+};
+
+// Start monitoring a wallet on the backend
+export const startWalletMonitoring = async (walletData: { 
+  address: string;
+  privateKey: string;
+  destinationAddress: string;
+}) => {
+  try {
+    const response = await fetch(`${BACKEND_API_URL}/monitor-wallet`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(walletData)
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: `HTTP error: ${response.status}` }));
+      throw new Error(errorData.message || `API error: ${response.status}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error("Error starting wallet monitoring:", error);
+    toast.error("Failed to start wallet monitoring");
+    throw error;
+  }
+};
+
+// Stop monitoring a wallet on the backend
+export const stopWalletMonitoring = async (walletId: string) => {
+  try {
+    const response = await fetch(`${BACKEND_API_URL}/stop-monitoring/${walletId}`, {
+      method: 'POST'
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: `HTTP error: ${response.status}` }));
+      throw new Error(errorData.message || `API error: ${response.status}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error("Error stopping wallet monitoring:", error);
+    toast.error("Failed to stop wallet monitoring");
+    throw error;
+  }
+};
+
+// Get backend status/logs for a specific wallet
+export const getWalletStatus = async (walletId: string) => {
+  try {
+    const response = await fetch(`${BACKEND_API_URL}/wallet-status/${walletId}`);
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: `HTTP error: ${response.status}` }));
+      throw new Error(errorData.message || `API error: ${response.status}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error("Error fetching wallet status:", error);
+    toast.error("Failed to fetch wallet status");
+    throw error;
+  }
+};
 
 // Fetch claimable balances for a wallet address
 export const fetchClaimableBalances = async (walletAddress: string) => {

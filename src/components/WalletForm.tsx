@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter }
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { Wallet, Key, ArrowRight, Plus, AlertCircle, Check, FileText, Loader2 } from 'lucide-react';
+import { Wallet, Key, ArrowRight, Plus, AlertCircle, Check, FileText, Loader2, Server } from 'lucide-react';
 import * as StellarSdk from 'stellar-sdk';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -241,7 +241,7 @@ const WalletForm: React.FC<WalletFormProps> = ({ onAddWallet, className = '' }) 
           Add New Wallet
         </CardTitle>
         <CardDescription>
-          Add a wallet to automatically claim and transfer Pi when unlocked
+          Add a wallet to monitor on the backend server for 24/7 automatic claiming
         </CardDescription>
       </CardHeader>
       
@@ -312,7 +312,7 @@ const WalletForm: React.FC<WalletFormProps> = ({ onAddWallet, className = '' }) 
                   )}
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Your key is only stored locally and never transmitted
+                  Your key is sent securely to our backend for processing and not stored in browser
                 </p>
                 
                 {keyError && (
@@ -348,7 +348,7 @@ const WalletForm: React.FC<WalletFormProps> = ({ onAddWallet, className = '' }) 
                 disabled={isSubmitting || validationStatus === 'error'}
               >
                 <Plus className="w-4 h-4 group-hover:scale-110 transition-transform" />
-                Add Wallet
+                Add Wallet to Backend
               </Button>
             </CardFooter>
           </form>
@@ -371,7 +371,7 @@ const WalletForm: React.FC<WalletFormProps> = ({ onAddWallet, className = '' }) 
                   rows={3}
                 />
                 <p className="text-xs text-muted-foreground mt-1">
-                  Your seed phrase is only used locally and never transmitted
+                  Your seed phrase is processed securely on our backend server and never stored in browser
                 </p>
                 
                 {seedError && (
@@ -439,12 +439,23 @@ const WalletForm: React.FC<WalletFormProps> = ({ onAddWallet, className = '' }) 
                 disabled={isSubmitting || !generatedWallet || !destinationAddress}
               >
                 <Plus className="w-4 h-4 group-hover:scale-110 transition-transform" />
-                Add Wallet
+                Add Wallet to Backend
               </Button>
             </CardFooter>
           </form>
         </TabsContent>
       </Tabs>
+      
+      {/* Backend processing notice */}
+      <div className="px-6 pb-4 pt-2">
+        <Alert variant="default" className="bg-blue-50 text-blue-800 border-blue-200">
+          <Server className="h-4 w-4 text-blue-600" />
+          <AlertDescription className="text-xs">
+            Private keys and seed phrases are only sent to the secure backend server 
+            for transaction processing. The backend runs 24/7 even when your browser is closed.
+          </AlertDescription>
+        </Alert>
+      </div>
     </Card>
   );
 };

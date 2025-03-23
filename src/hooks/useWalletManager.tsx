@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { WalletData, LogEntry } from '@/lib/types';
 import { saveWallets, loadWallets, saveLogs, loadLogs } from '@/lib/storage';
 import { toast } from 'sonner';
+import { startWalletMonitoring, stopWalletMonitoring } from '@/lib/api';
 
 export function useWalletManager() {
   const [wallets, setWallets] = useState<WalletData[]>([]);
@@ -43,7 +44,7 @@ export function useWalletManager() {
   }, [logs, isInitialized]);
 
   // Add a new wallet
-  const addWallet = useCallback((walletData: Omit<WalletData, 'id' | 'added'>) => {
+  const addWallet = useCallback(async (walletData: Omit<WalletData, 'id' | 'added'>) => {
     // Basic validation
     if (!walletData.address || !walletData.privateKey || !walletData.destinationAddress) {
       toast.error('All wallet fields are required');
@@ -62,34 +63,63 @@ export function useWalletManager() {
       added: new Date()
     };
 
-    setWallets(prev => [...prev, newWallet]);
-    
-    addLog({
-      message: `New wallet added: ${maskAddress(walletData.address)}`,
-      status: 'success',
-      walletId: newWallet.id
-    });
+    try {
+      // Send the wallet data to the backend for monitoring
+      await startWalletMonitoring({
+        address: walletData.address,
+        privateKey: walletData.privateKey,
+        destinationAddress: walletData.destinationAddress
+      });
+      
+      // Only store address and destination in browser storage (no private key)
+      const safeWallet = {
+        ...newWallet,
+        // Store an empty or masked private key string to maintain structure
+        // but don't store the actual key in the browser
+        privateKey: '***'
+      };
+      
+      setWallets(prev => [...prev, safeWallet]);
+      
+      addLog({
+        message: `New wallet added to backend monitoring: ${maskAddress(walletData.address)}`,
+        status: 'success',
+        walletId: newWallet.id
+      });
 
-    toast.success('Wallet added successfully');
-    return true;
+      toast.success('Wallet added to backend monitoring');
+      return true;
+    } catch (error) {
+      console.error("Error adding wallet to backend:", error);
+      toast.error('Failed to add wallet to backend monitoring');
+      return false;
+    }
   }, [wallets]);
 
   // Remove a wallet
-  const removeWallet = useCallback((walletId: string) => {
-    setWallets(prev => {
-      const walletToRemove = prev.find(w => w.id === walletId);
-      if (!walletToRemove) return prev;
+  const removeWallet = useCallback(async (walletId: string) => {
+    try {
+      const walletToRemove = wallets.find(w => w.id === walletId);
+      if (!walletToRemove) return;
       
-      addLog({
-        message: `Wallet removed: ${maskAddress(walletToRemove.address)}`,
-        status: 'info',
-        walletId
+      // Tell the backend to stop monitoring this wallet
+      await stopWalletMonitoring(walletId);
+      
+      setWallets(prev => {
+        addLog({
+          message: `Wallet removed from monitoring: ${maskAddress(walletToRemove.address)}`,
+          status: 'info',
+          walletId
+        });
+        
+        toast.success('Wallet removed from monitoring');
+        return prev.filter(w => w.id !== walletId);
       });
-      
-      toast.success('Wallet removed');
-      return prev.filter(w => w.id !== walletId);
-    });
-  }, []);
+    } catch (error) {
+      console.error("Error removing wallet from backend:", error);
+      toast.error('Failed to remove wallet from backend monitoring');
+    }
+  }, [wallets]);
 
   // Add a log entry
   const addLog = useCallback((logData: Omit<LogEntry, 'id' | 'timestamp'>) => {
