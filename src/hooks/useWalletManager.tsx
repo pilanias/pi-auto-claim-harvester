@@ -148,7 +148,7 @@ export function useWalletManager() {
         console.error('Error syncing with backend:', error);
         // Don't show toast as this is a background operation
       }
-    }, 10000); // Sync every 10 seconds
+    }, 300000); // Sync every 10 seconds
     
     return () => clearInterval(syncInterval);
   }, [isInitialized]);
