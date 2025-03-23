@@ -15,6 +15,11 @@ const REQUEST_LIMIT = 30 * 1000; // Minimum 30 seconds between requests for the 
 // Get claimable balances for a wallet with caching and rate limiting
 router.get('/claimable-balances/:address', async (req, res) => {
   try {
+    // Set CORS headers for this specific route
+    res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+    res.header('Access-Control-Allow-Methods', 'GET');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    
     const address = req.params.address;
     const requestTime = Date.now();
     
