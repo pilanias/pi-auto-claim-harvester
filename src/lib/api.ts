@@ -1,12 +1,11 @@
-
 import { toast } from "sonner";
 import * as StellarSdk from '@stellar/stellar-sdk';
 
 // Pi Network API base URL
 const PI_API_BASE_URL = "https://api.mainnet.minepi.com";
 
-// Network passphrase for Pi Network (same as Stellar public network)
-export const NETWORK_PASSPHRASE = StellarSdk.Networks.PUBLIC;
+// Network passphrase for Pi Network (correct one from status)
+export const NETWORK_PASSPHRASE = "Pi Network";
 
 // Fetch claimable balances for a wallet address
 export const fetchClaimableBalances = async (walletAddress: string) => {
@@ -59,14 +58,16 @@ export const fetchSequenceNumber = async (sourceAddress: string) => {
   }
 };
 
-// Generate transaction hash from XDR - FIXED TO MATCH STELLAR LAB EXACTLY
+// Generate transaction hash from XDR - FIXED TO MATCH PI NETWORK EXACTLY
 export const getTransactionHash = (xdr: string): string => {
   try {
-    // Parse the transaction from XDR string
-    const transaction = StellarSdk.TransactionBuilder.fromXDR(xdr, NETWORK_PASSPHRASE);
+    // Parse the transaction envelope from XDR
+    const transactionEnvelope = StellarSdk.xdr.TransactionEnvelope.fromXDR(xdr, 'base64');
     
-    // Get hash in the exact same way as Stellar Lab
-    const tx = new StellarSdk.Transaction(transaction.toEnvelope(), NETWORK_PASSPHRASE);
+    // Create a transaction object with the correct network passphrase
+    const tx = new StellarSdk.Transaction(transactionEnvelope, NETWORK_PASSPHRASE);
+    
+    // Get the hash
     return tx.hash().toString('hex');
   } catch (error) {
     console.error("Error generating transaction hash:", error);
@@ -77,7 +78,11 @@ export const getTransactionHash = (xdr: string): string => {
 // Sign transaction with key (exactly like Stellar Lab)
 export const signTransaction = (xdr: string, secretKey: string): string => {
   try {
-    // Parse the transaction from XDR exactly as Stellar Lab does
+    // First calculate the hash using the correct network passphrase
+    const txHash = getTransactionHash(xdr);
+    console.log(`Transaction hash before signing: ${txHash}`);
+    
+    // Parse the transaction from XDR using the correct method
     const tx = new StellarSdk.Transaction(
       StellarSdk.xdr.TransactionEnvelope.fromXDR(xdr, 'base64'), 
       NETWORK_PASSPHRASE
@@ -86,7 +91,7 @@ export const signTransaction = (xdr: string, secretKey: string): string => {
     // Create keypair from secret key
     const keyPair = StellarSdk.Keypair.fromSecret(secretKey);
     
-    // Sign the transaction using the exact same approach as Stellar Lab
+    // Sign the transaction with the keypair
     tx.sign(keyPair);
     
     // Convert back to XDR

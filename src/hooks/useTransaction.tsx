@@ -1,12 +1,10 @@
-
 import { useState, useEffect, useCallback } from 'react';
 import { WalletData, ClaimableBalance, TransactionStatus } from '@/lib/types';
-import { fetchSequenceNumber, submitTransaction } from '@/lib/api';
+import { fetchSequenceNumber, submitTransaction, NETWORK_PASSPHRASE } from '@/lib/api';
 import { toast } from 'sonner';
 import * as StellarSdk from '@stellar/stellar-sdk';
 
 // Set up Stellar SDK network configuration to use Pi Network
-const piNetwork = StellarSdk.Networks.PUBLIC; // Using the public network for Pi
 const server = new StellarSdk.Horizon.Server("https://api.mainnet.minepi.com");
 
 export function useTransaction(
@@ -231,10 +229,17 @@ export function useTransaction(
         walletId: wallet.id
       });
       
+      // IMPORTANT: Make sure we're using the correct network passphrase for Pi
+      addLog({
+        message: `Using network passphrase: ${NETWORK_PASSPHRASE}`,
+        status: 'info',
+        walletId: wallet.id
+      });
+      
       // Try a higher base fee (0.1 Pi = 1,000,000 stroops)
       let transactionBuilder = new StellarSdk.TransactionBuilder(sourceAccount, {
         fee: "1000000", // 0.1 Pi fee to ensure transaction priority
-        networkPassphrase: piNetwork
+        networkPassphrase: NETWORK_PASSPHRASE
       });
       
       // Add the claim operation first
@@ -253,8 +258,8 @@ export function useTransaction(
         })
       );
       
-      // Set a higher timeout
-      transactionBuilder = transactionBuilder.setTimeout(600); // 10 minutes
+      // Set a reasonable timeout
+      transactionBuilder = transactionBuilder.setTimeout(120); // 2 minutes
       
       // Build the transaction
       const transaction = transactionBuilder.build();
@@ -268,6 +273,14 @@ export function useTransaction(
         walletId: wallet.id
       });
       
+      // Get the transaction hash before signing for verification
+      const txHashBeforeSigning = transaction.hash().toString('hex');
+      addLog({
+        message: `Transaction hash before signing: ${txHashBeforeSigning}`,
+        status: 'info',
+        walletId: wallet.id
+      });
+      
       setProcessingBalances(prev => ({ ...prev, [balance.id]: 'signing' }));
       addLog({
         message: `Signing transaction with key for ${wallet.address}...`,
@@ -276,28 +289,13 @@ export function useTransaction(
       });
       
       // Sign the transaction with our validated keypair
-      try {
-        // Using direct sign method instead of transaction.sign()
-        const signature = keyPair.sign(transaction.hash());
-        transaction.signatures.push(new StellarSdk.xdr.DecoratedSignature({
-          hint: keyPair.signatureHint(),
-          signature: signature
-        }));
-        
-        addLog({
-          message: `✓ Transaction signed successfully`,
-          status: 'success',
-          walletId: wallet.id
-        });
-      } catch (signError) {
-        console.error('Error signing transaction:', signError);
-        addLog({
-          message: `Error signing: ${signError instanceof Error ? signError.message : 'Unknown signing error'}`,
-          status: 'error',
-          walletId: wallet.id
-        });
-        throw new Error(`Failed to sign transaction: ${signError instanceof Error ? signError.message : 'Unknown error'}`);
-      }
+      transaction.sign(keyPair);
+      
+      addLog({
+        message: `✓ Transaction signed successfully`,
+        status: 'success',
+        walletId: wallet.id
+      });
       
       // Get the signed XDR for verification
       const xdr = transaction.toXDR();
