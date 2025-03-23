@@ -2,8 +2,8 @@
 import { toast } from "sonner";
 import * as StellarSdk from '@stellar/stellar-sdk';
 
-// Backend API base URL - replace with your actual backend URL when deployed
-const BACKEND_API_URL = "http://localhost:3001/api";
+// Backend API base URL - using GitHub Codespaces URL
+const BACKEND_API_URL = "https://supreme-giggle-9w4949v5pxvhxwpj-3001.app.github.dev/api";
 
 // Pi Network API base URL
 const PI_API_BASE_URL = "https://api.mainnet.minepi.com";

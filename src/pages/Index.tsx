@@ -67,8 +67,13 @@ const Index = () => {
     privateKey: string;
     destinationAddress: string;
   }) => {
-    const result = await addWallet(walletData);
-    return result;
+    try {
+      const result = await addWallet(walletData);
+      return result;
+    } catch (error) {
+      console.error('Error in handleAddWallet:', error);
+      return false;
+    }
   };
 
   return (
