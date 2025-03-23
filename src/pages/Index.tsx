@@ -61,6 +61,16 @@ const Index = () => {
     });
   };
 
+  // Wrapper function to handle the promise from addWallet
+  const handleAddWallet = async (walletData: {
+    address: string;
+    privateKey: string;
+    destinationAddress: string;
+  }) => {
+    const result = await addWallet(walletData);
+    return result;
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/30 bg-grid px-4 py-8 md:py-12">
       <div className="max-w-7xl mx-auto">
@@ -128,7 +138,7 @@ const Index = () => {
         {/* Main Content */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
           {/* Wallet Form */}
-          <WalletForm onAddWallet={addWallet} className="lg:col-span-1" />
+          <WalletForm onAddWallet={handleAddWallet} className="lg:col-span-1" />
           
           {/* Logs */}
           <LogDisplay 

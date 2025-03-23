@@ -17,19 +17,47 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Middleware
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+// Enhanced CORS setup
+const corsOptions = {
+  origin: function(origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    const allowedOrigins = [
+      process.env.CORS_ORIGIN,
+      'https://supreme-giggle-9w4949v5pxvhxwpj-8080.app.github.dev',
+      // Add any additional origins that need access
+      'http://localhost:5173',
+      'http://localhost:3000',
+      'http://127.0.0.1:5173',
+      'http://127.0.0.1:3000'
+    ];
+    
+    if (allowedOrigins.indexOf(origin) !== -1 || !origin) {
+      callback(null, true);
+    } else {
+      console.log('CORS blocked origin:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  credentials: true,
+  maxAge: 86400 // 24 hours
+};
+
+// Apply CORS middleware with options
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // Log all requests
 app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} [${req.method}] ${req.url}`);
+  console.log(`${new Date().toISOString()} [${req.method}] ${req.url} - Origin: ${req.headers.origin || 'unknown'}`);
   next();
 });
+
+// CORS preflight handler for all routes
+app.options('*', cors(corsOptions));
 
 // Routes
 app.use('/api', walletRoutes);
