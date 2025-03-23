@@ -63,19 +63,21 @@ const Index = () => {
     });
   };
 
-  // Update the wrapper function to accept the Promise from addWallet
-  const handleAddWallet = async (walletData: {
+  // Fix the TS error by making the function return a boolean directly
+  // WalletForm expects a synchronous boolean return
+  const handleAddWallet = (walletData: {
     address: string;
     privateKey: string;
     destinationAddress: string;
   }) => {
-    try {
-      await addWallet(walletData);
-      return true; // Return a boolean as expected by WalletForm
-    } catch (error) {
-      console.error('Error in handleAddWallet:', error);
-      return false; // Return a boolean as expected by WalletForm
-    }
+    // Call addWallet but don't wait for it to resolve
+    addWallet(walletData)
+      .catch(error => {
+        console.error('Error in handleAddWallet:', error);
+      });
+      
+    // Return true synchronously to let WalletForm know the operation started
+    return true;
   };
 
   return (

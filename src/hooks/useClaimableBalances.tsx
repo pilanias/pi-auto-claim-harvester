@@ -6,14 +6,24 @@ import { toast } from 'sonner';
 
 // Longer refresh interval (5 minutes = 300000ms)
 const REFRESH_INTERVAL = 5 * 60 * 1000;
+// Minimum time between wallet changes and refreshes (30 seconds)
+const MIN_REFRESH_INTERVAL = 30 * 1000;
 
 export function useClaimableBalances(wallets: WalletData[], addLog: Function) {
   const [claimableBalances, setClaimableBalances] = useState<ClaimableBalance[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [refreshEnabled, setRefreshEnabled] = useState(true);
-  // Add a ref to track if fetch is in progress to prevent concurrent requests
+  
+  // Add refs to track if fetch is in progress to prevent concurrent requests
   const isFetching = useRef(false);
+  const lastFetchTime = useRef<number>(0);
+  const walletsRef = useRef<WalletData[]>(wallets);
+  
+  // Update the wallets ref when the wallets array changes
+  useEffect(() => {
+    walletsRef.current = wallets;
+  }, [wallets]);
 
   // Helper function to extract the correct unlock time from predicate
   const extractUnlockTime = (record: any): Date => {
@@ -55,18 +65,20 @@ export function useClaimableBalances(wallets: WalletData[], addLog: Function) {
       return;
     }
 
-    // Prevent fetching too frequently unless forced
-    if (!force && lastUpdate) {
-      const timeSinceLastUpdate = Date.now() - lastUpdate.getTime();
-      if (timeSinceLastUpdate < 60000) { // 1 minute minimum between auto-refreshes
-        console.log(`Skipping automatic refresh - last update was ${Math.floor(timeSinceLastUpdate/1000)}s ago`);
-        return;
-      }
+    // Enforce minimum time between refreshes to prevent hammering
+    const now = Date.now();
+    const timeSinceLastFetch = now - lastFetchTime.current;
+    
+    if (!force && timeSinceLastFetch < MIN_REFRESH_INTERVAL) {
+      console.log(`Skipping refresh - too soon (${Math.floor(timeSinceLastFetch/1000)}s since last fetch, minimum ${MIN_REFRESH_INTERVAL/1000}s)`);
+      return;
     }
-
-    // Set fetching flag to prevent concurrent requests
+    
+    // Set fetching flag and update last fetch time
     isFetching.current = true;
+    lastFetchTime.current = now;
     setIsLoading(true);
+    
     let newBalances: ClaimableBalance[] = [];
 
     try {
@@ -124,10 +136,12 @@ export function useClaimableBalances(wallets: WalletData[], addLog: Function) {
       });
     } finally {
       setIsLoading(false);
-      // Reset fetching flag
-      isFetching.current = false;
+      // Reset fetching flag with a delay to prevent immediate refetching
+      setTimeout(() => {
+        isFetching.current = false;
+      }, 1000);
     }
-  }, [wallets, addLog, isLoading, lastUpdate]);
+  }, [wallets, addLog, isLoading]);
 
   // Toggle auto-refresh on/off
   const toggleAutoRefresh = useCallback(() => {
@@ -142,14 +156,15 @@ export function useClaimableBalances(wallets: WalletData[], addLog: Function) {
   useEffect(() => {
     // Initial fetch - with a small delay to avoid race conditions
     const initialFetchTimer = setTimeout(() => {
-      if (!isFetching.current) {
+      if (!isFetching.current && wallets.length > 0) {
+        console.log('Initial balance fetch');
         fetchAllBalances();
       }
-    }, 1000); 
+    }, 2000); 
     
-    // Refresh balances every 5 minutes instead of 2 minutes
+    // Refresh balances every 5 minutes
     const intervalId = setInterval(() => {
-      if (refreshEnabled && !isFetching.current) {
+      if (refreshEnabled && !isFetching.current && wallets.length > 0) {
         console.log('Running scheduled balance check (5 minute interval)');
         fetchAllBalances();
       }
@@ -159,14 +174,29 @@ export function useClaimableBalances(wallets: WalletData[], addLog: Function) {
       clearTimeout(initialFetchTimer);
       clearInterval(intervalId);
     };
-  }, [fetchAllBalances, refreshEnabled]);
+  }, [fetchAllBalances, refreshEnabled, wallets.length]);
 
-  // Refresh when wallets change but avoid infinite loops by adding a check
+  // Refresh when wallets change - but with additional safeguards
   useEffect(() => {
-    // Only fetch if we have wallets and we're not already fetching
-    if (wallets.length > 0 && !isFetching.current) {
-      console.log(`Wallet count changed to ${wallets.length}, refreshing balances`);
-      fetchAllBalances(true); // Force refresh when wallets change
+    const walletsChanged = wallets.length !== walletsRef.current.length;
+    
+    // Only fetch if wallets changed, we're not already fetching, and enough time has passed
+    if (walletsChanged && !isFetching.current && wallets.length > 0) {
+      const timeSinceLastFetch = Date.now() - lastFetchTime.current;
+      
+      if (timeSinceLastFetch >= MIN_REFRESH_INTERVAL) {
+        console.log(`Wallet count changed to ${wallets.length}, refreshing balances`);
+        fetchAllBalances(true); // Force refresh when wallets change
+      } else {
+        console.log(`Wallet count changed to ${wallets.length}, but delaying refresh (last fetch was ${Math.floor(timeSinceLastFetch/1000)}s ago)`);
+        // Schedule a delayed refresh
+        setTimeout(() => {
+          if (!isFetching.current) {
+            console.log('Running delayed refresh after wallet change');
+            fetchAllBalances(true);
+          }
+        }, MIN_REFRESH_INTERVAL - timeSinceLastFetch);
+      }
     }
   }, [wallets.length, fetchAllBalances]);
 

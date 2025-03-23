@@ -10,7 +10,7 @@ const router = express.Router();
 const balanceCache = new Map();
 const requestTimestamps = new Map(); // Track request timestamps by address
 const CACHE_TTL = 3 * 60 * 1000; // 3 minutes cache TTL
-const REQUEST_LIMIT = 10 * 1000; // Minimum 10 seconds between requests for the same address
+const REQUEST_LIMIT = 30 * 1000; // Minimum 30 seconds between requests for the same address
 
 // Get claimable balances for a wallet with caching and rate limiting
 router.get('/claimable-balances/:address', async (req, res) => {
@@ -36,7 +36,7 @@ router.get('/claimable-balances/:address', async (req, res) => {
       
       // If we don't have a cache entry but we're being rate limited, return a 429
       return res.status(429).json({
-        message: 'Too many requests, please wait at least 10 seconds between balance checks',
+        message: 'Too many requests, please wait at least 30 seconds between balance checks',
         retryAfter: Math.ceil((REQUEST_LIMIT - timeSinceLastRequest) / 1000)
       });
     }
