@@ -1,15 +1,15 @@
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { useWalletManager } from '@/hooks/useWalletManager';
 import { useClaimableBalances } from '@/hooks/useClaimableBalances';
+import { useTransaction } from '@/hooks/useTransaction';
 import WalletForm from '@/components/WalletForm';
 import WalletList from '@/components/WalletList';
 import LogDisplay from '@/components/LogDisplay';
-import { RefreshCw, Coins, Wallet, GitFork, Server } from 'lucide-react';
+import { RefreshCw, Coins, Wallet, GitFork } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Alert, AlertDescription } from '@/components/ui/alert';
 
 const Index = () => {
   // Initialize hooks
@@ -22,6 +22,11 @@ const Index = () => {
     fetchAllBalances,
     removeBalance
   } = useClaimableBalances(wallets, addLog);
+  
+  const {
+    processingBalances,
+    formatTimeRemaining
+  } = useTransaction(wallets, claimableBalances, removeBalance, addLog);
 
   // Calculate total Pi pending
   const totalPending = claimableBalances.reduce(
@@ -36,10 +41,10 @@ const Index = () => {
       status: 'info'
     });
     
-    // Add a note about the backend service
+    // Add a warning that this is a simulated environment
     addLog({
-      message: 'Connected to backend service for wallet monitoring',
-      status: 'info'
+      message: 'This is a demonstration. Transactions are simulated.',
+      status: 'warning'
     });
     
     // Set page title
@@ -48,7 +53,7 @@ const Index = () => {
     // Return cleanup function
     return () => {
       addLog({
-        message: 'UI closed, backend processing continues',
+        message: 'UI closed, background processes will continue',
         status: 'info'
       });
     };
@@ -57,7 +62,7 @@ const Index = () => {
   const handleRefresh = () => {
     fetchAllBalances();
     addLog({
-      message: 'Manually refreshed wallet statuses from backend',
+      message: 'Manually refreshed claimable balances',
       status: 'info'
     });
   };
@@ -72,18 +77,9 @@ const Index = () => {
           </div>
           <h1 className="text-3xl font-medium mb-2 tracking-tight">Pi Auto-Claim Tool</h1>
           <p className="text-muted-foreground max-w-2xl mx-auto">
-            Monitor, claim, and transfer Pi when unlocked using our backend service.
+            Automatically monitor, claim, and transfer Pi when unlocked. The tool runs continuously even when the UI is closed.
           </p>
         </div>
-        
-        {/* Backend Service Alert */}
-        <Alert className="mb-6 border-blue-200 bg-blue-50 text-blue-800">
-          <Server className="h-4 w-4 text-blue-600" />
-          <AlertDescription>
-            This application requires a backend service to monitor your wallets 24/7. 
-            The backend server should be hosted separately for production use.
-          </AlertDescription>
-        </Alert>
         
         {/* Status Bar */}
         <div className="flex flex-col sm:flex-row items-center justify-between p-4 mb-8 glass-morphism rounded-lg animate-fade-in">
@@ -112,15 +108,6 @@ const Index = () => {
                 {claimableBalances.length} {claimableBalances.length === 1 ? 'Transaction' : 'Transactions'} pending
               </span>
             </div>
-            
-            <Separator className="hidden sm:inline-block h-4 w-px bg-muted" />
-            
-            <div className="flex items-center gap-2">
-              <Server className="w-4 h-4 text-blue-500" />
-              <span className="text-sm text-blue-600 font-medium">
-                Connected to Backend
-              </span>
-            </div>
           </div>
           
           <TooltipProvider>
@@ -134,7 +121,7 @@ const Index = () => {
                   className="gap-2"
                 >
                   <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-                  Refresh Status
+                  Refresh
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
@@ -147,10 +134,7 @@ const Index = () => {
         {/* Main Content */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
           {/* Wallet Form */}
-          <WalletForm 
-            onAddWallet={addWallet} 
-            className="lg:col-span-1" 
-          />
+          <WalletForm onAddWallet={addWallet} className="lg:col-span-1" />
           
           {/* Logs */}
           <LogDisplay 
@@ -166,8 +150,8 @@ const Index = () => {
           <WalletList
             wallets={wallets}
             claimableBalances={claimableBalances}
-            processingStatuses={{}}
-            formatTimeRemaining={(ms) => ms < 0 ? 'now' : `${Math.floor(ms/1000)}s`}
+            processingStatuses={processingBalances}
+            formatTimeRemaining={formatTimeRemaining}
             onRemoveWallet={removeWallet}
             maskAddress={maskAddress}
           />
@@ -175,7 +159,7 @@ const Index = () => {
         
         {/* Footer */}
         <footer className="mt-12 text-center text-sm text-muted-foreground">
-          <p>Pi Auto-Claim Tool — <span className="text-blue-600">Backend must be hosted separately</span></p>
+          <p>Pi Auto-Claim Tool — Transactions continue processing even when this UI is closed.</p>
         </footer>
       </div>
     </div>
