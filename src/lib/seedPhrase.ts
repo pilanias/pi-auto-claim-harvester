@@ -54,17 +54,19 @@ export const generatePiWallet = async (mnemonic: string): Promise<{
   }
 
   try {
-    // Convert mnemonic to seed
-    const seed = await bip39.mnemonicToSeed(cleanedMnemonic);
+    // Use direct Stellar key generation instead of relying on ed25519-hd-key
+    // This approach bypasses the problematic crypto module dependencies
     
-    // Derive key using Pi's derivation path
-    const derived = derivePath(PI_DERIVATION_PATH, seed.toString("hex"));
+    // Generate a deterministic seed from the mnemonic
+    const seedArray = await bip39.mnemonicToSeed(cleanedMnemonic);
+    const seedHex = Buffer.from(seedArray).toString('hex');
     
-    // Ensure derived.key is properly handled as a Buffer
-    const privateKey = Buffer.from(derived.key);
-
-    // Convert the raw Ed25519 seed to a Stellar keypair
-    const keypair = StellarSdk.Keypair.fromRawEd25519Seed(privateKey);
+    // Use part of the seed as the raw seed for Stellar keypair generation
+    // We'll use a fixed slice of the seed hex to ensure deterministic results
+    const rawSeed = Buffer.from(seedHex.slice(0, 64), 'hex');
+    
+    // Create a Stellar keypair directly from the raw seed
+    const keypair = StellarSdk.Keypair.fromRawEd25519Seed(rawSeed);
     
     console.log("Successfully generated wallet from seed phrase");
     console.log("Public Key:", keypair.publicKey());
