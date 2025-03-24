@@ -1,32 +1,42 @@
-export type TransactionStatus = 
-  | 'idle'
-  | 'fetching_sequence'
-  | 'waiting'
-  | 'constructing'
-  | 'signing'
-  | 'submitting'
-  | 'completed'
-  | 'failed';
 
-export interface ClaimableBalance {
-  id: string;
-  amount: string;
-  unlockTime: Date;
-  walletId: string;
-}
-
-export interface WalletData {
+export type WalletData = {
   id: string;
   address: string;
   privateKey: string;
   destinationAddress: string;
   added: Date;
-}
+};
 
-export interface LogEntry {
+export type ClaimableBalance = {
   id: string;
-  message: string;
+  amount: string;
+  unlockTime: Date;
+  walletId: string;
+};
+
+export type TransactionStatus = 
+  | 'idle' 
+  | 'fetching_balance' 
+  | 'waiting' 
+  | 'fetching_sequence' 
+  | 'constructing' 
+  | 'signing' 
+  | 'submitting' 
+  | 'completed' 
+  | 'failed';
+
+export type LogEntry = {
+  id: string;
   timestamp: Date;
-  status: 'info' | 'success' | 'warning' | 'error';
+  message: string;
   walletId?: string;
-}
+  status: 'info' | 'success' | 'warning' | 'error';
+};
+
+export type StatusUpdate = {
+  walletId: string;
+  balanceId?: string;
+  status: TransactionStatus;
+  message?: string;
+  timestamp: Date;
+};

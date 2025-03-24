@@ -1,9 +1,8 @@
 
 import React, { useEffect } from 'react';
 import { useWalletManager } from '@/hooks/useWalletManager';
-import { useClaimMonitor } from '@/hooks/useClaimMonitor';
-import { useOptimizedTransaction } from '@/hooks/useOptimizedTransaction';
-import { syncNetworkTime, useCountdown } from '@/lib/timeUtils';
+import { useClaimableBalances } from '@/hooks/useClaimableBalances';
+import { useTransaction } from '@/hooks/useTransaction';
 import WalletForm from '@/components/WalletForm';
 import WalletList from '@/components/WalletList';
 import LogDisplay from '@/components/LogDisplay';
@@ -13,32 +12,21 @@ import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 const Index = () => {
-  // Initialize wallet manager
+  // Initialize hooks
   const { wallets, logs, addWallet, removeWallet, addLog, clearLogs, maskAddress } = useWalletManager();
   
-  // Initialize claim monitoring
   const {
     claimableBalances,
     isLoading,
     lastUpdate,
     fetchAllBalances,
-    removeBalance,
-    isNearUnlock,
-    isUnlocked
-  } = useClaimMonitor(wallets, {}, addLog);
+    removeBalance
+  } = useClaimableBalances(wallets, addLog);
   
-  // Initialize optimized transaction processing
   const {
     processingBalances,
-    forceClaimNow
-  } = useOptimizedTransaction(
-    wallets,
-    claimableBalances,
-    removeBalance,
-    addLog,
-    isUnlocked,
-    isNearUnlock
-  );
+    formatTimeRemaining
+  } = useTransaction(wallets, claimableBalances, removeBalance, addLog);
 
   // Calculate total Pi pending
   const totalPending = claimableBalances.reduce(
@@ -46,11 +34,8 @@ const Index = () => {
     0
   );
 
-  // Log component mount and sync network time
+  // Log component mount
   useEffect(() => {
-    // Sync network time on mount
-    syncNetworkTime();
-    
     addLog({
       message: 'Pi Auto-Claim Tool frontend started',
       status: 'info'
@@ -69,7 +54,7 @@ const Index = () => {
   }, []);
 
   const handleRefresh = () => {
-    fetchAllBalances(true); // Force a refresh
+    fetchAllBalances();
     addLog({
       message: 'Manually refreshed claimable balances',
       status: 'info'
@@ -175,11 +160,9 @@ const Index = () => {
             wallets={wallets}
             claimableBalances={claimableBalances}
             processingStatuses={processingBalances}
+            formatTimeRemaining={formatTimeRemaining}
             onRemoveWallet={removeWallet}
             maskAddress={maskAddress}
-            onForceClaimNow={forceClaimNow}
-            isNearUnlock={isNearUnlock}
-            isUnlocked={isUnlocked}
           />
         </div>
         
