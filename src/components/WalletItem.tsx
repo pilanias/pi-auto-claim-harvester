@@ -4,24 +4,30 @@ import { WalletData, ClaimableBalance, TransactionStatus } from '@/lib/types';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import StatusIndicator from './StatusIndicator';
-import { Wallet, ArrowRight, Timer, Coins, Trash2 } from 'lucide-react';
+import { Wallet, ArrowRight, Timer, Coins, Trash2, Zap } from 'lucide-react';
+import { useCountdown } from '@/lib/timeUtils';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 interface WalletItemProps {
   wallet: WalletData;
   claimableBalances: ClaimableBalance[];
   processingStatuses: Record<string, TransactionStatus>;
-  formatTimeRemaining: (milliseconds: number) => string;
   onRemove: (walletId: string) => void;
   maskAddress: (address: string) => string;
+  onForceClaimNow?: (balanceId: string) => void;
+  isNearUnlock?: (balance: ClaimableBalance) => boolean;
+  isUnlocked?: (balance: ClaimableBalance) => boolean;
 }
 
 const WalletItem: React.FC<WalletItemProps> = ({
   wallet,
   claimableBalances,
   processingStatuses,
-  formatTimeRemaining,
   onRemove,
-  maskAddress
+  maskAddress,
+  onForceClaimNow,
+  isNearUnlock,
+  isUnlocked
 }) => {
   // Filter balances for this wallet
   const walletBalances = claimableBalances.filter(
@@ -33,11 +39,6 @@ const WalletItem: React.FC<WalletItemProps> = ({
     (total, balance) => total + parseFloat(balance.amount),
     0
   );
-
-  const getTimeRemaining = (unlockTime: Date) => {
-    const now = new Date();
-    return unlockTime.getTime() - now.getTime();
-  };
 
   return (
     <Card className="overflow-hidden glass-morphism hover:shadow-md transition-shadow duration-300 animate-fade-in">
@@ -73,17 +74,23 @@ const WalletItem: React.FC<WalletItemProps> = ({
             </div>
             
             {walletBalances.map((balance) => {
-              const timeRemaining = getTimeRemaining(balance.unlockTime);
-              const isNearUnlock = timeRemaining > 0 && timeRemaining < 60000; // Within 1 minute
-              const isUnlocked = timeRemaining <= 0;
+              // Use the countdown hook for real-time updates
+              const countdown = useCountdown(balance.unlockTime);
+              
+              // Compute unlock status
+              const isBalanceUnlocked = isUnlocked ? isUnlocked(balance) : countdown.isExpired;
+              const isBalanceNearUnlock = isNearUnlock ? isNearUnlock(balance) : 
+                (!isBalanceUnlocked && countdown.milliseconds < 60000);
+              
               const status = processingStatuses[balance.id] || 'idle';
+              const canForceProcess = onForceClaimNow && isBalanceUnlocked && status !== 'completed';
               
               return (
                 <div 
                   key={balance.id} 
                   className={`rounded-md px-3 py-2 text-xs border
-                    ${isUnlocked ? 'bg-primary/5 border-primary/20' : 
-                      isNearUnlock ? 'bg-amber-50 border-amber-200' : 
+                    ${isBalanceUnlocked ? 'bg-primary/5 border-primary/20' : 
+                      isBalanceNearUnlock ? 'bg-amber-50 border-amber-200' : 
                       'bg-secondary/50 border-border'}
                   `}
                 >
@@ -96,16 +103,38 @@ const WalletItem: React.FC<WalletItemProps> = ({
                     <span className="text-muted-foreground flex items-center gap-1">
                       <Timer className="w-3 h-3" /> Unlock:
                     </span>
-                    <span className={`font-medium ${isUnlocked ? 'text-green-500' : isNearUnlock ? 'text-amber-500' : ''}`}>
-                      {isUnlocked 
+                    <span className={`font-medium ${isBalanceUnlocked ? 'text-green-500' : isBalanceNearUnlock ? 'text-amber-500' : ''}`}>
+                      {isBalanceUnlocked 
                         ? 'Unlocked' 
-                        : formatTimeRemaining(timeRemaining)}
+                        : countdown.formatted}
                     </span>
                   </div>
                   
                   <div className="flex justify-between items-center mt-2 pt-1 border-t border-border/50">
                     <span className="text-muted-foreground">Status:</span>
-                    <StatusIndicator status={status} />
+                    <div className="flex items-center gap-2">
+                      <StatusIndicator status={status} />
+                      
+                      {canForceProcess && (
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                onClick={() => onForceClaimNow(balance.id)}
+                                className="h-5 w-5 p-0.5 text-amber-500 hover:text-amber-600 hover:bg-amber-50"
+                              >
+                                <Zap className="w-4 h-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>Force process now</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      )}
+                    </div>
                   </div>
                 </div>
               );
