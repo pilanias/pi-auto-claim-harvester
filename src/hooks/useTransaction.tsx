@@ -17,293 +17,25 @@ export function useTransaction(
   const [activeTimers, setActiveTimers] = useState<Record<string, NodeJS.Timeout>>({});
   const sequenceCache = useRef<Record<string, { sequence: string, timestamp: number }>>({});
   
-  // Clean up timers on unmount
-  useEffect(() => {
-    return () => {
-      Object.values(activeTimers).forEach(timer => clearTimeout(timer));
-    };
-  }, [activeTimers]);
-
-  // Set up timers for each claimable balance
-  useEffect(() => {
-    // Clear all existing timers when balances change
-    Object.values(activeTimers).forEach(timer => clearTimeout(timer));
-    setActiveTimers({});
+  // Helper function to format time remaining
+  const formatTimeRemaining = useCallback((milliseconds: number): string => {
+    if (milliseconds < 0) return 'now';
     
-    // Set up new timers for each balance
-    claimableBalances.forEach(balance => {
-      const now = Date.now();
-      const unlockTime = new Date(balance.unlockTime).getTime();
-      
-      // Skip balances that are already processing or completed
-      if (processingBalances[balance.id]) return;
-      
-      // Calculate milliseconds until unlock
-      const timeUntilUnlock = unlockTime - now;
-      
-      // If it's more than 30 minutes away, we'll fetch sequence number 5 minutes before unlock
-      if (timeUntilUnlock > 30 * 60 * 1000) {
-        // Schedule to fetch sequence 5 minutes before unlock
-        const timeUntilSequenceFetch = timeUntilUnlock - 5 * 60 * 1000;
-        
-        const timer = setTimeout(() => {
-          prefetchSequenceNumber(balance);
-        }, timeUntilSequenceFetch);
-        
-        setActiveTimers(prev => ({ ...prev, [balance.id]: timer }));
-        
-        addLog({
-          message: `Will prefetch sequence number in ${formatTimeRemaining(timeUntilSequenceFetch)}`,
-          status: 'info',
-          walletId: balance.walletId
-        });
-      }
-      // If it's between 5-30 minutes away, fetch sequence number 1 minute before
-      else if (timeUntilUnlock > 5 * 60 * 1000) {
-        // Schedule to fetch sequence 1 minute before unlock
-        const timeUntilSequenceFetch = timeUntilUnlock - 60 * 1000;
-        
-        const timer = setTimeout(() => {
-          prefetchSequenceNumber(balance);
-        }, timeUntilSequenceFetch);
-        
-        setActiveTimers(prev => ({ ...prev, [balance.id]: timer }));
-        
-        addLog({
-          message: `Will prefetch sequence number in ${formatTimeRemaining(timeUntilSequenceFetch)}`,
-          status: 'info',
-          walletId: balance.walletId
-        });
-      }
-      // If it's between 30 seconds and 5 minutes away, fetch sequence number 30 seconds before
-      else if (timeUntilUnlock > 30 * 1000) {
-        // Schedule to fetch sequence 30 seconds before unlock
-        const timeUntilSequenceFetch = timeUntilUnlock - 30 * 1000;
-        
-        const timer = setTimeout(() => {
-          prefetchSequenceNumber(balance);
-        }, timeUntilSequenceFetch);
-        
-        setActiveTimers(prev => ({ ...prev, [balance.id]: timer }));
-        
-        addLog({
-          message: `Will prefetch sequence number in ${formatTimeRemaining(timeUntilSequenceFetch)}`,
-          status: 'info',
-          walletId: balance.walletId
-        });
-      }
-      // If it's between 5-30 seconds away, fetch sequence number right now
-      else if (timeUntilUnlock > 5 * 1000) {
-        // Fetch sequence immediately
-        const timer = setTimeout(() => {
-          prefetchSequenceNumber(balance);
-        }, 0);
-        
-        setActiveTimers(prev => ({ ...prev, [balance.id]: timer }));
-        
-        addLog({
-          message: `Prefetching sequence number now for upcoming unlock`,
-          status: 'info',
-          walletId: balance.walletId
-        });
-      }
-      // If it's less than 5 seconds away or already unlocked, start processing immediately
-      else {
-        const timer = setTimeout(() => {
-          startProcessingBalance(balance);
-        }, 0);
-        
-        setActiveTimers(prev => ({ ...prev, [balance.id]: timer }));
-        
-        // If it's already unlocked, log that
-        if (timeUntilUnlock <= 0) {
-          addLog({
-            message: `Processing already unlocked balance of ${balance.amount} Pi`,
-            status: 'info',
-            walletId: balance.walletId
-          });
-        } else {
-          addLog({
-            message: `Balance unlocking in ${formatTimeRemaining(timeUntilUnlock)}, preparing transaction`,
-            status: 'info',
-            walletId: balance.walletId
-          });
-        }
-      }
-    });
-  }, [claimableBalances]);
-
-  // Pre-fetch sequence number before unlock time to speed up transaction preparation
-  const prefetchSequenceNumber = useCallback(async (balance: ClaimableBalance) => {
-    const wallet = wallets.find(w => w.id === balance.walletId);
-    if (!wallet) {
-      console.error('Wallet not found for balance:', balance);
-      return;
+    const seconds = Math.floor(milliseconds / 1000);
+    if (seconds < 60) return `${seconds}s`;
+    
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    
+    if (minutes < 60) {
+      return `${minutes}m ${remainingSeconds}s`;
     }
     
-    try {
-      // Update status to fetching sequence
-      setProcessingBalances(prev => ({ ...prev, [balance.id]: 'fetching_sequence' }));
-      
-      addLog({
-        message: `Pre-fetching sequence number for wallet ${wallet.address.substring(0, 6)}...`,
-        status: 'info',
-        walletId: wallet.id
-      });
-      
-      // Fetch sequence number directly from the API
-      const currentSequence = await fetchSequenceNumber(wallet.address);
-      
-      // Cache the sequence number with a timestamp
-      sequenceCache.current[wallet.address] = {
-        sequence: currentSequence,
-        timestamp: Date.now()
-      };
-      
-      addLog({
-        message: `Sequence number cached: ${currentSequence}`,
-        status: 'success',
-        walletId: wallet.id
-      });
-      
-      // Now calculate the exact time to execute the transaction
-      const now = Date.now();
-      const unlockTime = new Date(balance.unlockTime).getTime();
-      const timeUntilUnlock = unlockTime - now;
-      
-      // If it's more than 2 seconds away, schedule the transaction at the exact unlock time
-      if (timeUntilUnlock > 2000) {
-        // Set status to waiting
-        setProcessingBalances(prev => ({ ...prev, [balance.id]: 'waiting' }));
-        
-        addLog({
-          message: `Transaction prepared, executing in ${formatTimeRemaining(timeUntilUnlock)}`,
-          status: 'info',
-          walletId: wallet.id
-        });
-        
-        // Schedule transaction at exact unlock time
-        const timer = setTimeout(() => {
-          constructAndSubmitTransaction(balance, wallet, currentSequence);
-        }, timeUntilUnlock);
-        
-        setActiveTimers(prev => ({ ...prev, [balance.id]: timer }));
-      } 
-      // If it's very close or already unlocked, execute now
-      else {
-        constructAndSubmitTransaction(balance, wallet, currentSequence);
-      }
-    } catch (error) {
-      console.error('Error prefetching sequence number:', error);
-      setProcessingBalances(prev => ({ ...prev, [balance.id]: 'failed' }));
-      
-      addLog({
-        message: `Failed to prefetch sequence number: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        status: 'error',
-        walletId: wallet.id
-      });
-      
-      // Retry after a short delay
-      const timer = setTimeout(() => {
-        startProcessingBalance(balance);
-      }, 5000);
-      
-      setActiveTimers(prev => ({ ...prev, [balance.id]: timer }));
-    }
-  }, [wallets, addLog]);
-
-  // Start processing a balance (fetch sequence number, etc.)
-  const startProcessingBalance = useCallback(async (balance: ClaimableBalance) => {
-    const wallet = wallets.find(w => w.id === balance.walletId);
-    if (!wallet) {
-      console.error('Wallet not found for balance:', balance);
-      return;
-    }
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
     
-    // Check if we have a recent cached sequence number
-    const cachedSequence = sequenceCache.current[wallet.address];
-    const now = Date.now();
-    
-    // If we have a recent sequence number (less than 30 seconds old), use it
-    if (cachedSequence && (now - cachedSequence.timestamp) < 30000) {
-      addLog({
-        message: `Using cached sequence number: ${cachedSequence.sequence}`,
-        status: 'info',
-        walletId: wallet.id
-      });
-      
-      constructAndSubmitTransaction(balance, wallet, cachedSequence.sequence);
-      return;
-    }
-    
-    // Otherwise, fetch a new sequence number
-    // Update status to fetching sequence
-    setProcessingBalances(prev => ({ ...prev, [balance.id]: 'fetching_sequence' }));
-    
-    addLog({
-      message: `Fetching sequence number for wallet ${wallet.address.substring(0, 6)}...`,
-      status: 'info',
-      walletId: wallet.id
-    });
-    
-    try {
-      // Fetch sequence number directly from the API
-      const currentSequence = await fetchSequenceNumber(wallet.address);
-      
-      addLog({
-        message: `Current sequence from API: ${currentSequence}`,
-        status: 'info',
-        walletId: wallet.id
-      });
-      
-      // Update cache
-      sequenceCache.current[wallet.address] = {
-        sequence: currentSequence,
-        timestamp: now
-      };
-      
-      // Check if we need to wait for unlock time
-      const unlockTime = new Date(balance.unlockTime).getTime();
-      const timeUntilUnlock = unlockTime - now;
-      
-      if (timeUntilUnlock > 1000) {
-        // Set status to waiting
-        setProcessingBalances(prev => ({ ...prev, [balance.id]: 'waiting' }));
-        
-        addLog({
-          message: `Waiting ${formatTimeRemaining(timeUntilUnlock)} until unlock time`,
-          status: 'info',
-          walletId: wallet.id
-        });
-        
-        // Set timer to construct transaction at unlock time
-        const timer = setTimeout(() => {
-          constructAndSubmitTransaction(balance, wallet, currentSequence);
-        }, timeUntilUnlock + 500); // Add a small buffer after unlock
-        
-        setActiveTimers(prev => ({ ...prev, [balance.id]: timer }));
-      } else {
-        // Already unlocked, construct and submit transaction immediately
-        constructAndSubmitTransaction(balance, wallet, currentSequence);
-      }
-    } catch (error) {
-      console.error('Error fetching sequence number:', error);
-      setProcessingBalances(prev => ({ ...prev, [balance.id]: 'failed' }));
-      
-      addLog({
-        message: `Failed to fetch sequence number: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        status: 'error',
-        walletId: wallet.id
-      });
-      
-      // Retry after a short delay
-      const timer = setTimeout(() => {
-        startProcessingBalance(balance);
-      }, 5000);
-      
-      setActiveTimers(prev => ({ ...prev, [balance.id]: timer }));
-    }
-  }, [wallets, addLog, constructAndSubmitTransaction]);
+    return `${hours}h ${remainingMinutes}m`;
+  }, []);
 
   // Construct and submit transaction with both claim and payment operations
   const constructAndSubmitTransaction = useCallback(async (
@@ -575,25 +307,293 @@ export function useTransaction(
     }
   }, [addLog, removeBalance]);
 
-  // Helper function to format time remaining
-  const formatTimeRemaining = (milliseconds: number): string => {
-    if (milliseconds < 0) return 'now';
-    
-    const seconds = Math.floor(milliseconds / 1000);
-    if (seconds < 60) return `${seconds}s`;
-    
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-    
-    if (minutes < 60) {
-      return `${minutes}m ${remainingSeconds}s`;
+  // Start processing a balance (fetch sequence number, etc.)
+  const startProcessingBalance = useCallback(async (balance: ClaimableBalance) => {
+    const wallet = wallets.find(w => w.id === balance.walletId);
+    if (!wallet) {
+      console.error('Wallet not found for balance:', balance);
+      return;
     }
     
-    const hours = Math.floor(minutes / 60);
-    const remainingMinutes = minutes % 60;
+    // Check if we have a recent cached sequence number
+    const cachedSequence = sequenceCache.current[wallet.address];
+    const now = Date.now();
     
-    return `${hours}h ${remainingMinutes}m`;
-  };
+    // If we have a recent sequence number (less than 30 seconds old), use it
+    if (cachedSequence && (now - cachedSequence.timestamp) < 30000) {
+      addLog({
+        message: `Using cached sequence number: ${cachedSequence.sequence}`,
+        status: 'info',
+        walletId: wallet.id
+      });
+      
+      constructAndSubmitTransaction(balance, wallet, cachedSequence.sequence);
+      return;
+    }
+    
+    // Otherwise, fetch a new sequence number
+    // Update status to fetching sequence
+    setProcessingBalances(prev => ({ ...prev, [balance.id]: 'fetching_sequence' }));
+    
+    addLog({
+      message: `Fetching sequence number for wallet ${wallet.address.substring(0, 6)}...`,
+      status: 'info',
+      walletId: wallet.id
+    });
+    
+    try {
+      // Fetch sequence number directly from the API
+      const currentSequence = await fetchSequenceNumber(wallet.address);
+      
+      addLog({
+        message: `Current sequence from API: ${currentSequence}`,
+        status: 'info',
+        walletId: wallet.id
+      });
+      
+      // Update cache
+      sequenceCache.current[wallet.address] = {
+        sequence: currentSequence,
+        timestamp: now
+      };
+      
+      // Check if we need to wait for unlock time
+      const unlockTime = new Date(balance.unlockTime).getTime();
+      const timeUntilUnlock = unlockTime - now;
+      
+      if (timeUntilUnlock > 1000) {
+        // Set status to waiting
+        setProcessingBalances(prev => ({ ...prev, [balance.id]: 'waiting' }));
+        
+        addLog({
+          message: `Waiting ${formatTimeRemaining(timeUntilUnlock)} until unlock time`,
+          status: 'info',
+          walletId: wallet.id
+        });
+        
+        // Set timer to construct transaction at unlock time
+        const timer = setTimeout(() => {
+          constructAndSubmitTransaction(balance, wallet, currentSequence);
+        }, timeUntilUnlock + 500); // Add a small buffer after unlock
+        
+        setActiveTimers(prev => ({ ...prev, [balance.id]: timer }));
+      } else {
+        // Already unlocked, construct and submit transaction immediately
+        constructAndSubmitTransaction(balance, wallet, currentSequence);
+      }
+    } catch (error) {
+      console.error('Error fetching sequence number:', error);
+      setProcessingBalances(prev => ({ ...prev, [balance.id]: 'failed' }));
+      
+      addLog({
+        message: `Failed to fetch sequence number: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        status: 'error',
+        walletId: wallet.id
+      });
+      
+      // Retry after a short delay
+      const timer = setTimeout(() => {
+        startProcessingBalance(balance);
+      }, 5000);
+      
+      setActiveTimers(prev => ({ ...prev, [balance.id]: timer }));
+    }
+  }, [wallets, addLog, constructAndSubmitTransaction, formatTimeRemaining]);
+
+  // Pre-fetch sequence number before unlock time to speed up transaction preparation
+  const prefetchSequenceNumber = useCallback(async (balance: ClaimableBalance) => {
+    const wallet = wallets.find(w => w.id === balance.walletId);
+    if (!wallet) {
+      console.error('Wallet not found for balance:', balance);
+      return;
+    }
+    
+    try {
+      // Update status to fetching sequence
+      setProcessingBalances(prev => ({ ...prev, [balance.id]: 'fetching_sequence' }));
+      
+      addLog({
+        message: `Pre-fetching sequence number for wallet ${wallet.address.substring(0, 6)}...`,
+        status: 'info',
+        walletId: wallet.id
+      });
+      
+      // Fetch sequence number directly from the API
+      const currentSequence = await fetchSequenceNumber(wallet.address);
+      
+      // Cache the sequence number with a timestamp
+      sequenceCache.current[wallet.address] = {
+        sequence: currentSequence,
+        timestamp: Date.now()
+      };
+      
+      addLog({
+        message: `Sequence number cached: ${currentSequence}`,
+        status: 'success',
+        walletId: wallet.id
+      });
+      
+      // Now calculate the exact time to execute the transaction
+      const now = Date.now();
+      const unlockTime = new Date(balance.unlockTime).getTime();
+      const timeUntilUnlock = unlockTime - now;
+      
+      // If it's more than 2 seconds away, schedule the transaction at the exact unlock time
+      if (timeUntilUnlock > 2000) {
+        // Set status to waiting
+        setProcessingBalances(prev => ({ ...prev, [balance.id]: 'waiting' }));
+        
+        addLog({
+          message: `Transaction prepared, executing in ${formatTimeRemaining(timeUntilUnlock)}`,
+          status: 'info',
+          walletId: wallet.id
+        });
+        
+        // Schedule transaction at exact unlock time
+        const timer = setTimeout(() => {
+          constructAndSubmitTransaction(balance, wallet, currentSequence);
+        }, timeUntilUnlock);
+        
+        setActiveTimers(prev => ({ ...prev, [balance.id]: timer }));
+      } 
+      // If it's very close or already unlocked, execute now
+      else {
+        constructAndSubmitTransaction(balance, wallet, currentSequence);
+      }
+    } catch (error) {
+      console.error('Error prefetching sequence number:', error);
+      setProcessingBalances(prev => ({ ...prev, [balance.id]: 'failed' }));
+      
+      addLog({
+        message: `Failed to prefetch sequence number: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        status: 'error',
+        walletId: wallet.id
+      });
+      
+      // Retry after a short delay
+      const timer = setTimeout(() => {
+        startProcessingBalance(balance);
+      }, 5000);
+      
+      setActiveTimers(prev => ({ ...prev, [balance.id]: timer }));
+    }
+  }, [wallets, addLog, constructAndSubmitTransaction, formatTimeRemaining]);
+
+  // Clean up timers on unmount
+  useEffect(() => {
+    return () => {
+      Object.values(activeTimers).forEach(timer => clearTimeout(timer));
+    };
+  }, [activeTimers]);
+
+  // Set up timers for each claimable balance
+  useEffect(() => {
+    // Clear all existing timers when balances change
+    Object.values(activeTimers).forEach(timer => clearTimeout(timer));
+    setActiveTimers({});
+    
+    // Set up new timers for each balance
+    claimableBalances.forEach(balance => {
+      const now = Date.now();
+      const unlockTime = new Date(balance.unlockTime).getTime();
+      
+      // Skip balances that are already processing or completed
+      if (processingBalances[balance.id]) return;
+      
+      // Calculate milliseconds until unlock
+      const timeUntilUnlock = unlockTime - now;
+      
+      // If it's more than 30 minutes away, we'll fetch sequence number 5 minutes before unlock
+      if (timeUntilUnlock > 30 * 60 * 1000) {
+        // Schedule to fetch sequence 5 minutes before unlock
+        const timeUntilSequenceFetch = timeUntilUnlock - 5 * 60 * 1000;
+        
+        const timer = setTimeout(() => {
+          prefetchSequenceNumber(balance);
+        }, timeUntilSequenceFetch);
+        
+        setActiveTimers(prev => ({ ...prev, [balance.id]: timer }));
+        
+        addLog({
+          message: `Will prefetch sequence number in ${formatTimeRemaining(timeUntilSequenceFetch)}`,
+          status: 'info',
+          walletId: balance.walletId
+        });
+      }
+      // If it's between 5-30 minutes away, fetch sequence number 1 minute before
+      else if (timeUntilUnlock > 5 * 60 * 1000) {
+        // Schedule to fetch sequence 1 minute before unlock
+        const timeUntilSequenceFetch = timeUntilUnlock - 60 * 1000;
+        
+        const timer = setTimeout(() => {
+          prefetchSequenceNumber(balance);
+        }, timeUntilSequenceFetch);
+        
+        setActiveTimers(prev => ({ ...prev, [balance.id]: timer }));
+        
+        addLog({
+          message: `Will prefetch sequence number in ${formatTimeRemaining(timeUntilSequenceFetch)}`,
+          status: 'info',
+          walletId: balance.walletId
+        });
+      }
+      // If it's between 30 seconds and 5 minutes away, fetch sequence number 30 seconds before
+      else if (timeUntilUnlock > 30 * 1000) {
+        // Schedule to fetch sequence 30 seconds before unlock
+        const timeUntilSequenceFetch = timeUntilUnlock - 30 * 1000;
+        
+        const timer = setTimeout(() => {
+          prefetchSequenceNumber(balance);
+        }, timeUntilSequenceFetch);
+        
+        setActiveTimers(prev => ({ ...prev, [balance.id]: timer }));
+        
+        addLog({
+          message: `Will prefetch sequence number in ${formatTimeRemaining(timeUntilSequenceFetch)}`,
+          status: 'info',
+          walletId: balance.walletId
+        });
+      }
+      // If it's between 5-30 seconds away, fetch sequence number right now
+      else if (timeUntilUnlock > 5 * 1000) {
+        // Fetch sequence immediately
+        const timer = setTimeout(() => {
+          prefetchSequenceNumber(balance);
+        }, 0);
+        
+        setActiveTimers(prev => ({ ...prev, [balance.id]: timer }));
+        
+        addLog({
+          message: `Prefetching sequence number now for upcoming unlock`,
+          status: 'info',
+          walletId: balance.walletId
+        });
+      }
+      // If it's less than 5 seconds away or already unlocked, start processing immediately
+      else {
+        const timer = setTimeout(() => {
+          startProcessingBalance(balance);
+        }, 0);
+        
+        setActiveTimers(prev => ({ ...prev, [balance.id]: timer }));
+        
+        // If it's already unlocked, log that
+        if (timeUntilUnlock <= 0) {
+          addLog({
+            message: `Processing already unlocked balance of ${balance.amount} Pi`,
+            status: 'info',
+            walletId: balance.walletId
+          });
+        } else {
+          addLog({
+            message: `Balance unlocking in ${formatTimeRemaining(timeUntilUnlock)}, preparing transaction`,
+            status: 'info',
+            walletId: balance.walletId
+          });
+        }
+      }
+    });
+  }, [claimableBalances, processingBalances, activeTimers, addLog, prefetchSequenceNumber, startProcessingBalance, formatTimeRemaining]);
 
   return {
     processingBalances,

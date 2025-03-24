@@ -61,12 +61,12 @@ const Index = () => {
     });
   };
 
-  // Wrapper function to handle the promise from addWallet
+  // Modified wrapper function to use async/await and handle the promise correctly
   const handleAddWallet = async (walletData: {
     address: string;
     privateKey: string;
     destinationAddress: string;
-  }) => {
+  }): Promise<boolean> => {
     try {
       const result = await addWallet(walletData);
       return result;
