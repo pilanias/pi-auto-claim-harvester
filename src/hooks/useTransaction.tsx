@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { WalletData, ClaimableBalance, TransactionStatus } from '@/lib/types';
 import { fetchSequenceNumber, submitTransaction, NETWORK_PASSPHRASE } from '@/lib/api';
@@ -37,7 +38,7 @@ export function useTransaction(
     return `${hours}h ${remainingMinutes}m`;
   }, []);
 
-  // Construct and submit transaction with both claim and payment operations
+  // Define constructAndSubmitTransaction first, before it's referenced by other functions
   const constructAndSubmitTransaction = useCallback(async (
     balance: ClaimableBalance, 
     wallet: WalletData, 
@@ -261,7 +262,6 @@ export function useTransaction(
       
     } catch (error) {
       console.error('Transaction error:', error);
-      console.log('Full error details:', error);
       setProcessingBalances(prev => ({ ...prev, [balance.id]: 'failed' }));
       
       addLog({
@@ -307,7 +307,7 @@ export function useTransaction(
     }
   }, [addLog, removeBalance]);
 
-  // Start processing a balance (fetch sequence number, etc.)
+  // Now define startProcessingBalance after constructAndSubmitTransaction
   const startProcessingBalance = useCallback(async (balance: ClaimableBalance) => {
     const wallet = wallets.find(w => w.id === balance.walletId);
     if (!wallet) {

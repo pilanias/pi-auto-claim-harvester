@@ -11,6 +11,8 @@ export function useClaimableBalances(wallets: WalletData[], addLog: Function) {
   const isFetchingRef = useRef<boolean>(false);
   const walletLastCheckedRef = useRef<Record<string, number>>({});
   const scheduledChecksRef = useRef<Record<string, NodeJS.Timeout>>({});
+  const initialFetchDoneRef = useRef<boolean>(false);
+  const previousWalletCountRef = useRef<number>(0);
 
   // Helper function to extract the correct unlock time from predicate
   const extractUnlockTime = (record: any): Date => {
@@ -163,7 +165,7 @@ export function useClaimableBalances(wallets: WalletData[], addLog: Function) {
     
     // Don't check more often than once every 30 seconds per wallet unless it's the first check
     if (lastChecked > 0 && timeSinceLastCheck < 30000) {
-      console.log(`Skipping check for wallet ${wallet.address.substring(0, 6)}... (checked ${timeSinceLastCheck / 1000}s ago)`);
+      // Reduced logging to avoid console spam
       return;
     }
     
@@ -229,7 +231,7 @@ export function useClaimableBalances(wallets: WalletData[], addLog: Function) {
         walletId: wallet.id
       });
     }
-  }, [addLog, extractUnlockTime, scheduleChecksBasedOnUnlockTimes]);
+  }, [addLog, scheduleChecksBasedOnUnlockTimes]);
 
   // Fetch claimable balances for all wallets
   const fetchAllBalances = useCallback(async () => {
@@ -269,11 +271,22 @@ export function useClaimableBalances(wallets: WalletData[], addLog: Function) {
 
   // Initial fetch on mount or wallet change
   useEffect(() => {
-    // Only fetch if we have wallets to check and haven't fetched before or have new wallets
-    if ((wallets.length > 0 && !lastUpdate) || wallets.length !== Object.keys(walletLastCheckedRef.current).length) {
-      console.log("Wallet count changed to", wallets.length, "refreshing balances");
+    // Only fetch if we have wallets to check and:
+    // 1. Either we haven't fetched before
+    // 2. Or the wallet count has changed
+    const currentWalletCount = wallets.length;
+    
+    // Avoid redundant log when no change in wallet count
+    if (currentWalletCount > 0 && 
+        (currentWalletCount !== previousWalletCountRef.current || !initialFetchDoneRef.current)) {
+      console.log("Wallet count changed to", currentWalletCount, "refreshing balances");
       fetchAllBalances();
+      // Mark initial fetch as done
+      initialFetchDoneRef.current = true;
     }
+    
+    // Update previous wallet count for next comparison
+    previousWalletCountRef.current = currentWalletCount;
     
     // Refresh balances every 10 minutes as a fallback
     const intervalId = setInterval(() => {

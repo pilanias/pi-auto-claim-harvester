@@ -1,4 +1,3 @@
-
 import React, { useEffect } from 'react';
 import { useWalletManager } from '@/hooks/useWalletManager';
 import { useClaimableBalances } from '@/hooks/useClaimableBalances';
@@ -61,19 +60,13 @@ const Index = () => {
     });
   };
 
-  // Modified wrapper function to use async/await and handle the promise correctly
-  const handleAddWallet = async (walletData: {
+  // Modify the component prop to accept a Promise<boolean>
+  const handleAddWallet = (walletData: {
     address: string;
     privateKey: string;
     destinationAddress: string;
-  }): Promise<boolean> => {
-    try {
-      const result = await addWallet(walletData);
-      return result;
-    } catch (error) {
-      console.error('Error in handleAddWallet:', error);
-      return false;
-    }
+  }) => {
+    return addWallet(walletData);
   };
 
   return (
