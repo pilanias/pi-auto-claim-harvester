@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { WalletData, LogEntry } from '@/lib/types';
@@ -17,6 +16,16 @@ export function useWalletManager() {
   const [isInitialized, setIsInitialized] = useState(false);
   const lastSyncRef = useRef<number>(0);
   const isSyncingRef = useRef<boolean>(false);
+  const lastErrorLogTimeRef = useRef<number>(0>; // To throttle error logs
+
+  // Throttled error logging function
+  const throttledErrorLog = useCallback((message: string, error: any, minInterval = 10000) => {
+    const now = Date.now();
+    if (now - lastErrorLogTimeRef.current > minInterval) {
+      console.error(message, error);
+      lastErrorLogTimeRef.current = now;
+    }
+  }, []);
 
   // Load wallets and logs from backend on mount
   useEffect(() => {
@@ -33,7 +42,7 @@ export function useWalletManager() {
         setIsInitialized(true);
         lastSyncRef.current = Date.now();
       } catch (error) {
-        console.error('Error loading initial data:', error);
+        throttledErrorLog('Error loading initial data:', error);
         toast.error('Failed to connect to backend service');
         // Initialize with empty arrays if backend is not available
         setWallets([]);
@@ -43,7 +52,7 @@ export function useWalletManager() {
     };
     
     fetchInitialData();
-  }, []);
+  }, [throttledErrorLog]);
 
   // Add a new wallet
   const addWallet = useCallback(async (walletData: Omit<WalletData, 'id' | 'added'>) => {
@@ -141,12 +150,12 @@ export function useWalletManager() {
     // Skip if already syncing or if not initialized
     if (isSyncingRef.current || !isInitialized) return;
     
-    // Check if enough time has passed since last sync (5 minutes)
+    // Check if enough time has passed since last sync (10 minutes - INCREASED to reduce CPU)
     const now = Date.now();
     const timeSinceLastSync = now - lastSyncRef.current;
     
-    // Only sync if forced or if enough time has passed (5 minutes = 300000ms)
-    if (!force && timeSinceLastSync < 300000) return;
+    // Only sync if forced or if enough time has passed (10 minutes = 600000ms)
+    if (!force && timeSinceLastSync < 600000) return;
     
     isSyncingRef.current = true;
     
@@ -160,12 +169,12 @@ export function useWalletManager() {
       // Update last sync time
       lastSyncRef.current = now;
     } catch (error) {
-      console.error('Error syncing with backend:', error);
+      throttledErrorLog('Error syncing with backend:', error, 30000);
       // Don't show toast as this is a background operation
     } finally {
       isSyncingRef.current = false;
     }
-  }, [isInitialized]);
+  }, [isInitialized, throttledErrorLog]);
 
   // Periodically sync logs and wallets from backend, but less frequently
   useEffect(() => {
@@ -176,7 +185,7 @@ export function useWalletManager() {
     
     const syncInterval = setInterval(() => {
       syncWithBackend();
-    }, 300000); // Sync every 5 minutes (reduced from 10 seconds)
+    }, 600000); // Sync every 10 minutes (increased from 5 minutes)
     
     return () => clearInterval(syncInterval);
   }, [isInitialized, syncWithBackend]);

@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { ClaimableBalance, WalletData } from '@/lib/types';
 import { fetchClaimableBalances } from '@/lib/api';
@@ -13,6 +12,7 @@ export function useClaimableBalances(wallets: WalletData[], addLog: Function) {
   const scheduledChecksRef = useRef<Record<string, NodeJS.Timeout>>({});
   const initialFetchDoneRef = useRef<boolean>(false);
   const previousWalletCountRef = useRef<number>(0);
+  const throttledLogTimeRef = useRef<number>(0);
 
   // Helper function to extract the correct unlock time from predicate
   const extractUnlockTime = (record: any): Date => {
@@ -43,6 +43,15 @@ export function useClaimableBalances(wallets: WalletData[], addLog: Function) {
       return new Date(Date.now() + 1000 * 60 * 60 * 24); // Default to 24 hours from now on error
     }
   };
+
+  // Throttled logging to prevent excessive console output
+  const throttledLog = useCallback((message: string, minInterval = 5000) => {
+    const now = Date.now();
+    if (now - throttledLogTimeRef.current > minInterval) {
+      console.log(message);
+      throttledLogTimeRef.current = now;
+    }
+  }, []);
 
   // Schedule checks based on unlock times
   const scheduleChecksBasedOnUnlockTimes = useCallback((balances: ClaimableBalance[]) => {
@@ -154,7 +163,7 @@ export function useClaimableBalances(wallets: WalletData[], addLog: Function) {
     return `${hours}h ${remainingMinutes}m`;
   };
 
-  // Fetch claimable balances for a specific wallet
+  // Fetch claimable balances for a specific wallet with throttled logging
   const fetchBalancesForWallet = useCallback(async (wallet?: WalletData) => {
     if (!wallet) return;
     
@@ -165,12 +174,12 @@ export function useClaimableBalances(wallets: WalletData[], addLog: Function) {
     
     // Don't check more often than once every 30 seconds per wallet unless it's the first check
     if (lastChecked > 0 && timeSinceLastCheck < 30000) {
-      // Reduced logging to avoid console spam
-      return;
+      return; // Skip without logging to reduce console spam
     }
     
     try {
-      console.log(`Fetching balances for wallet ${wallet.address.substring(0, 6)}...`);
+      // Throttled logging to reduce console spam
+      throttledLog(`Fetching balances for wallet ${wallet.address.substring(0, 6)}...`);
       
       // Update last checked timestamp for this wallet
       walletLastCheckedRef.current[wallet.id] = now;
@@ -231,9 +240,9 @@ export function useClaimableBalances(wallets: WalletData[], addLog: Function) {
         walletId: wallet.id
       });
     }
-  }, [addLog, scheduleChecksBasedOnUnlockTimes]);
+  }, [addLog, scheduleChecksBasedOnUnlockTimes, throttledLog]);
 
-  // Fetch claimable balances for all wallets
+  // Fetch claimable balances for all wallets with improved logging
   const fetchAllBalances = useCallback(async () => {
     if (wallets.length === 0 || isFetchingRef.current) {
       return;
@@ -245,6 +254,9 @@ export function useClaimableBalances(wallets: WalletData[], addLog: Function) {
     try {
       // Clear existing data - will be replaced with fresh data
       setClaimableBalances([]);
+      
+      // Throttled logging
+      throttledLog(`Fetching balances for ${wallets.length} wallets`);
       
       for (const wallet of wallets) {
         await fetchBalancesForWallet(wallet);
@@ -267,38 +279,38 @@ export function useClaimableBalances(wallets: WalletData[], addLog: Function) {
       setIsLoading(false);
       isFetchingRef.current = false;
     }
-  }, [wallets, addLog, claimableBalances.length, fetchBalancesForWallet]);
+  }, [wallets, addLog, claimableBalances.length, fetchBalancesForWallet, throttledLog]);
 
-  // Initial fetch on mount or wallet change
+  // Initial fetch on mount or wallet change - optimized to reduce unnecessary fetches
   useEffect(() => {
     // Only fetch if we have wallets to check and:
     // 1. Either we haven't fetched before
     // 2. Or the wallet count has changed
     const currentWalletCount = wallets.length;
     
-    // Avoid redundant log when no change in wallet count
+    // Check if wallet count changed before logging and fetching
     if (currentWalletCount > 0 && 
         (currentWalletCount !== previousWalletCountRef.current || !initialFetchDoneRef.current)) {
-      console.log("Wallet count changed to", currentWalletCount, "refreshing balances");
+      // Use throttled logging
+      throttledLog(`Wallet count changed to ${currentWalletCount}, refreshing balances`);
       fetchAllBalances();
-      // Mark initial fetch as done
       initialFetchDoneRef.current = true;
     }
     
     // Update previous wallet count for next comparison
     previousWalletCountRef.current = currentWalletCount;
     
-    // Refresh balances every 10 minutes as a fallback
+    // Refresh balances every 10 minutes as a fallback - DECREASED FREQUENCY to reduce CPU load
     const intervalId = setInterval(() => {
       fetchAllBalances();
-    }, 10 * 60 * 1000);
+    }, 15 * 60 * 1000); // Increased from 10 to 15 minutes to reduce CPU usage
     
     return () => {
       clearInterval(intervalId);
       // Clear any scheduled checks
       Object.values(scheduledChecksRef.current).forEach(timeoutId => clearTimeout(timeoutId));
     };
-  }, [wallets, fetchAllBalances]);
+  }, [wallets, fetchAllBalances, throttledLog]);
   
   // Remove a specific balance (e.g., after claiming)
   const removeBalance = useCallback((balanceId: string) => {

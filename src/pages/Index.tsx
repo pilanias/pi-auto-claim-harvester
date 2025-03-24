@@ -60,13 +60,18 @@ const Index = () => {
     });
   };
 
-  // Modify the component prop to accept a Promise<boolean>
-  const handleAddWallet = (walletData: {
+  // The component expects a function returning a Promise<boolean>
+  const handleAddWallet = async (walletData: {
     address: string;
     privateKey: string;
     destinationAddress: string;
   }) => {
-    return addWallet(walletData);
+    try {
+      return await addWallet(walletData);
+    } catch (error) {
+      console.error('Error in handleAddWallet:', error);
+      return false;
+    }
   };
 
   return (
