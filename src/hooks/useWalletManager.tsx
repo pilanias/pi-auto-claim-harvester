@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { WalletData, LogEntry } from '@/lib/types';
 import { toast } from 'sonner';
@@ -15,6 +15,8 @@ export function useWalletManager() {
   const [wallets, setWallets] = useState<WalletData[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [isInitialized, setIsInitialized] = useState(false);
+  const lastSyncRef = useRef<number>(0);
+  const isSyncingRef = useRef<boolean>(false);
 
   // Load wallets and logs from backend on mount
   useEffect(() => {
@@ -29,6 +31,7 @@ export function useWalletManager() {
         setLogs(backendLogs);
         
         setIsInitialized(true);
+        lastSyncRef.current = Date.now();
       } catch (error) {
         console.error('Error loading initial data:', error);
         toast.error('Failed to connect to backend service');
@@ -133,25 +136,50 @@ export function useWalletManager() {
     return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
   };
 
-  // Periodically sync logs and wallets from backend
+  // Sync from backend - only if not already syncing and if minimum interval has passed
+  const syncWithBackend = useCallback(async (force = false) => {
+    // Skip if already syncing or if not initialized
+    if (isSyncingRef.current || !isInitialized) return;
+    
+    // Check if enough time has passed since last sync (5 minutes)
+    const now = Date.now();
+    const timeSinceLastSync = now - lastSyncRef.current;
+    
+    // Only sync if forced or if enough time has passed (5 minutes = 300000ms)
+    if (!force && timeSinceLastSync < 300000) return;
+    
+    isSyncingRef.current = true;
+    
+    try {
+      const backendLogs = await getLogs();
+      setLogs(backendLogs);
+      
+      const backendWallets = await getMonitoredWallets();
+      setWallets(backendWallets);
+      
+      // Update last sync time
+      lastSyncRef.current = now;
+    } catch (error) {
+      console.error('Error syncing with backend:', error);
+      // Don't show toast as this is a background operation
+    } finally {
+      isSyncingRef.current = false;
+    }
+  }, [isInitialized]);
+
+  // Periodically sync logs and wallets from backend, but less frequently
   useEffect(() => {
     if (!isInitialized) return;
 
-    const syncInterval = setInterval(async () => {
-      try {
-        const backendLogs = await getLogs();
-        setLogs(backendLogs);
-        
-        const backendWallets = await getMonitoredWallets();
-        setWallets(backendWallets);
-      } catch (error) {
-        console.error('Error syncing with backend:', error);
-        // Don't show toast as this is a background operation
-      }
-    }, 300000); // Sync every 10 seconds
+    // Initial sync
+    syncWithBackend(true);
+    
+    const syncInterval = setInterval(() => {
+      syncWithBackend();
+    }, 300000); // Sync every 5 minutes (reduced from 10 seconds)
     
     return () => clearInterval(syncInterval);
-  }, [isInitialized]);
+  }, [isInitialized, syncWithBackend]);
 
   return {
     wallets,
@@ -160,6 +188,7 @@ export function useWalletManager() {
     removeWallet,
     addLog,
     clearLogs,
-    maskAddress
+    maskAddress,
+    syncWithBackend
   };
 }
