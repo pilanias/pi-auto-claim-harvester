@@ -1,5 +1,5 @@
 
-import React, { useEffect, useCallback, useMemo } from 'react';
+import React, { useEffect } from 'react';
 import { useWalletManager } from '@/hooks/useWalletManager';
 import { useClaimableBalances } from '@/hooks/useClaimableBalances';
 import { useTransaction } from '@/hooks/useTransaction';
@@ -10,7 +10,6 @@ import { RefreshCw, Coins, Wallet, GitFork } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { throttle } from '@/lib/performance';
 
 const Index = () => {
   // Initialize hooks
@@ -29,13 +28,10 @@ const Index = () => {
     formatTimeRemaining
   } = useTransaction(wallets, claimableBalances, removeBalance, addLog);
 
-  // Calculate total Pi pending - memoize to avoid recalculation on every render
-  const totalPending = useMemo(() => 
-    claimableBalances.reduce(
-      (total, balance) => total + parseFloat(balance.amount),
-      0
-    ), 
-    [claimableBalances]
+  // Calculate total Pi pending
+  const totalPending = claimableBalances.reduce(
+    (total, balance) => total + parseFloat(balance.amount),
+    0
   );
 
   // Log component mount
@@ -57,17 +53,16 @@ const Index = () => {
     };
   }, []);
 
-  // Throttle refresh to prevent excessive API calls
-  const handleRefresh = useCallback(throttle(() => {
+  const handleRefresh = () => {
     fetchAllBalances();
     addLog({
       message: 'Manually refreshed claimable balances',
       status: 'info'
     });
-  }, 3000), [fetchAllBalances, addLog]);
+  };
 
-  // This function matches the expected type in WalletForm
-  const handleAddWallet = useCallback(async (walletData: {
+  // Wrapper function to handle the promise from addWallet
+  const handleAddWallet = async (walletData: {
     address: string;
     privateKey: string;
     destinationAddress: string;
@@ -79,7 +74,7 @@ const Index = () => {
       console.error('Error in handleAddWallet:', error);
       return false;
     }
-  }, [addWallet]);
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/30 bg-grid px-4 py-8 md:py-12">
@@ -180,4 +175,4 @@ const Index = () => {
   );
 };
 
-export default React.memo(Index);
+export default Index;

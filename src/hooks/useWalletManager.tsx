@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+
+import { useState, useEffect, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { WalletData, LogEntry } from '@/lib/types';
 import { toast } from 'sonner';
@@ -9,25 +10,11 @@ import {
   getLogs, 
   clearLogs as clearLogsApi 
 } from '@/lib/api';
-import { throttle } from '@/lib/performance';
-
-// Constants to avoid magic numbers
-const SYNC_INTERVAL = 900000; // 15 minutes (increased from 10 minutes)
-const ERROR_THROTTLE_INTERVAL = 30000; // 30 seconds
 
 export function useWalletManager() {
   const [wallets, setWallets] = useState<WalletData[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [isInitialized, setIsInitialized] = useState(false);
-  const lastSyncRef = useRef<number>(0);
-  const isSyncingRef = useRef<boolean>(false);
-  const lastErrorLogTimeRef = useRef<number>(0); // To throttle error logs
-  const prevWalletsCountRef = useRef<number>(0); // To track wallet count changes
-
-  // Throttled error logging function using the throttle utility
-  const throttledErrorLog = useCallback(throttle((message: string, error: any) => {
-    console.error(message, error);
-  }, ERROR_THROTTLE_INTERVAL), []);
 
   // Load wallets and logs from backend on mount
   useEffect(() => {
@@ -36,16 +23,14 @@ export function useWalletManager() {
         // Get wallets from backend
         const backendWallets = await getMonitoredWallets();
         setWallets(backendWallets);
-        prevWalletsCountRef.current = backendWallets.length;
         
         // Get logs from backend
         const backendLogs = await getLogs();
         setLogs(backendLogs);
         
         setIsInitialized(true);
-        lastSyncRef.current = Date.now();
       } catch (error) {
-        throttledErrorLog('Error loading initial data:', error);
+        console.error('Error loading initial data:', error);
         toast.error('Failed to connect to backend service');
         // Initialize with empty arrays if backend is not available
         setWallets([]);
@@ -55,9 +40,9 @@ export function useWalletManager() {
     };
     
     fetchInitialData();
-  }, [throttledErrorLog]);
+  }, []);
 
-  // Add a new wallet - memoize wallets dependency
+  // Add a new wallet
   const addWallet = useCallback(async (walletData: Omit<WalletData, 'id' | 'added'>) => {
     // Basic validation
     if (!walletData.address || !walletData.privateKey || !walletData.destinationAddress) {
@@ -110,21 +95,13 @@ export function useWalletManager() {
 
   // Add a log entry (client-side only, for immediate feedback)
   const addLog = useCallback((logData: Omit<LogEntry, 'id' | 'timestamp'>) => {
-    // Limit logs array size to prevent memory issues
     const newLog: LogEntry = {
       ...logData,
       id: uuidv4(),
       timestamp: new Date()
     };
 
-    setLogs(prev => {
-      // Keep only the last 1000 logs to prevent memory bloat
-      const updatedLogs = [...prev, newLog];
-      if (updatedLogs.length > 1000) {
-        return updatedLogs.slice(updatedLogs.length - 1000);
-      }
-      return updatedLogs;
-    });
+    setLogs(prev => [...prev, newLog]);
     return newLog;
   }, []);
 
@@ -151,82 +128,38 @@ export function useWalletManager() {
   }, [addLog]);
 
   // Helper function to mask wallet addresses for privacy
-  const maskAddress = useMemo(() => {
-    return (address: string): string => {
-      if (address.length < 10) return address;
-      return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
-    };
-  }, []);
+  const maskAddress = (address: string): string => {
+    if (address.length < 10) return address;
+    return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
+  };
 
-  // Sync from backend - optimized to reduce CPU usage
-  const syncWithBackend = useCallback(async (force = false) => {
-    // Skip if already syncing or if not initialized
-    if (isSyncingRef.current || !isInitialized) return;
-    
-    // Check if enough time has passed since last sync (15 minutes now - INCREASED to reduce CPU)
-    const now = Date.now();
-    const timeSinceLastSync = now - lastSyncRef.current;
-    
-    // Only sync if forced or if enough time has passed
-    if (!force && timeSinceLastSync < SYNC_INTERVAL) return;
-    
-    isSyncingRef.current = true;
-    
-    try {
-      const backendLogs = await getLogs();
-      
-      // Only update logs if there are new ones
-      if (backendLogs.length !== logs.length) {
-        setLogs(backendLogs);
-      }
-      
-      const backendWallets = await getMonitoredWallets();
-      
-      // Only update wallets if the count changed
-      if (backendWallets.length !== prevWalletsCountRef.current) {
-        setWallets(backendWallets);
-        prevWalletsCountRef.current = backendWallets.length;
-      }
-      
-      // Update last sync time
-      lastSyncRef.current = now;
-    } catch (error) {
-      throttledErrorLog('Error syncing with backend:', error);
-      // Don't show toast as this is a background operation
-    } finally {
-      isSyncingRef.current = false;
-    }
-  }, [isInitialized, logs.length, throttledErrorLog]);
-
-  // Periodically sync logs and wallets from backend, reduced frequency
+  // Periodically sync logs and wallets from backend
   useEffect(() => {
     if (!isInitialized) return;
 
-    // Initial sync - use a small timeout to avoid immediate execution
-    const initialSyncTimeout = setTimeout(() => {
-      syncWithBackend(true);
-    }, 1000);
+    const syncInterval = setInterval(async () => {
+      try {
+        const backendLogs = await getLogs();
+        setLogs(backendLogs);
+        
+        const backendWallets = await getMonitoredWallets();
+        setWallets(backendWallets);
+      } catch (error) {
+        console.error('Error syncing with backend:', error);
+        // Don't show toast as this is a background operation
+      }
+    }, 10000); // Sync every 10 seconds
     
-    // Reduce sync frequency to once every 15 minutes
-    const syncInterval = setInterval(() => {
-      syncWithBackend();
-    }, SYNC_INTERVAL);
-    
-    return () => {
-      clearTimeout(initialSyncTimeout);
-      clearInterval(syncInterval);
-    };
-  }, [isInitialized, syncWithBackend]);
+    return () => clearInterval(syncInterval);
+  }, [isInitialized]);
 
-  // Use a stable reference for the return object to prevent unnecessary re-renders
-  return useMemo(() => ({
+  return {
     wallets,
     logs,
     addWallet,
     removeWallet,
     addLog,
     clearLogs,
-    maskAddress,
-    syncWithBackend
-  }), [wallets, logs, addWallet, removeWallet, addLog, clearLogs, maskAddress, syncWithBackend]);
+    maskAddress
+  };
 }

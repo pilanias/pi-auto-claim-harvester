@@ -1,6 +1,6 @@
+
 import { toast } from "sonner";
 import * as StellarSdk from '@stellar/stellar-sdk';
-import { throttle } from "./performance";
 
 // Determine the correct backend URL based on the environment
 // This helps the app work both in development and production
@@ -27,9 +27,6 @@ const PI_API_BASE_URL = "https://api.mainnet.minepi.com";
 // Network passphrase for Pi Network (correct one from status)
 export const NETWORK_PASSPHRASE = "Pi Network";
 
-// Add request throttling to prevent excessive API calls
-const throttledFetch = throttle(fetch, 1000);
-
 // Monitor a wallet (sends to backend)
 export const monitorWallet = async (walletData: {
   address: string;
@@ -38,7 +35,7 @@ export const monitorWallet = async (walletData: {
 }) => {
   try {
     // Send wallet data to backend
-    const response = await throttledFetch(`${BACKEND_API_URL}/monitor-wallet`, {
+    const response = await fetch(`${BACKEND_API_URL}/monitor-wallet`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -62,7 +59,7 @@ export const monitorWallet = async (walletData: {
 // Stop monitoring a wallet
 export const stopMonitoringWallet = async (walletId: string) => {
   try {
-    const response = await throttledFetch(`${BACKEND_API_URL}/stop-monitoring/${walletId}`, {
+    const response = await fetch(`${BACKEND_API_URL}/stop-monitoring/${walletId}`, {
       method: 'DELETE',
     });
 
@@ -82,7 +79,7 @@ export const stopMonitoringWallet = async (walletId: string) => {
 // Get all monitored wallets from backend
 export const getMonitoredWallets = async () => {
   try {
-    const response = await throttledFetch(`${BACKEND_API_URL}/wallets`);
+    const response = await fetch(`${BACKEND_API_URL}/wallets`);
     
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -97,41 +94,20 @@ export const getMonitoredWallets = async () => {
   }
 };
 
-// Get logs from backend - optimized with caching
-let cachedLogs = { data: null, timestamp: 0 };
-const CACHE_TTL = 60000; // 1 minute cache
-
+// Get logs from backend
 export const getLogs = async () => {
   try {
-    const now = Date.now();
-    
-    // Return cached logs if they exist and are fresh
-    if (cachedLogs.data && (now - cachedLogs.timestamp < CACHE_TTL)) {
-      return cachedLogs.data;
-    }
-    
-    const response = await throttledFetch(`${BACKEND_API_URL}/logs`);
+    const response = await fetch(`${BACKEND_API_URL}/logs`);
     
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       throw new Error(errorData.message || `Server error: ${response.status}`);
     }
     
-    const data = await response.json();
-    
-    // Update cache
-    cachedLogs = {
-      data,
-      timestamp: now
-    };
-    
-    return data;
+    return await response.json();
   } catch (error) {
     console.error("Error fetching logs:", error);
-    // Don't show toast for background fetches
-    if (error instanceof Error && error.message !== "Failed to fetch") {
-      toast.error("Failed to fetch logs");
-    }
+    toast.error("Failed to fetch logs");
     throw error;
   }
 };
@@ -139,7 +115,7 @@ export const getLogs = async () => {
 // Clear logs on backend
 export const clearLogs = async () => {
   try {
-    const response = await throttledFetch(`${BACKEND_API_URL}/logs`, {
+    const response = await fetch(`${BACKEND_API_URL}/logs`, {
       method: 'DELETE',
     });
     
@@ -160,7 +136,7 @@ export const clearLogs = async () => {
 export const fetchClaimableBalances = async (walletAddress: string) => {
   try {
     // Delegate this call to the backend
-    const response = await throttledFetch(`${BACKEND_API_URL}/claimable-balances/${walletAddress}`);
+    const response = await fetch(`${BACKEND_API_URL}/claimable-balances/${walletAddress}`);
     
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -181,7 +157,7 @@ export const fetchSequenceNumber = async (sourceAddress: string) => {
     console.log(`Fetching sequence number for account: ${sourceAddress}`);
     
     // Use the backend to fetch this
-    const response = await throttledFetch(`${BACKEND_API_URL}/sequence/${sourceAddress}`);
+    const response = await fetch(`${BACKEND_API_URL}/sequence/${sourceAddress}`);
     
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -206,15 +182,9 @@ export const fetchSequenceNumber = async (sourceAddress: string) => {
 };
 
 // These functions are still needed on the client for wallet validation
-// Generate transaction hash from XDR - optimize with memoization
-const hashCache = new Map();
+// Generate transaction hash from XDR
 export const getTransactionHash = (xdr: string): string => {
   try {
-    // Check cache first
-    if (hashCache.has(xdr)) {
-      return hashCache.get(xdr);
-    }
-    
     // Parse the transaction envelope from XDR
     const transactionEnvelope = StellarSdk.xdr.TransactionEnvelope.fromXDR(xdr, 'base64');
     
@@ -222,12 +192,7 @@ export const getTransactionHash = (xdr: string): string => {
     const tx = new StellarSdk.Transaction(transactionEnvelope, NETWORK_PASSPHRASE);
     
     // Get the hash
-    const hash = tx.hash().toString('hex');
-    
-    // Store in cache
-    hashCache.set(xdr, hash);
-    
-    return hash;
+    return tx.hash().toString('hex');
   } catch (error) {
     console.error("Error generating transaction hash:", error);
     throw new Error(`Failed to generate transaction hash: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -271,7 +236,7 @@ export const submitTransaction = async (xdr: string) => {
     console.log(`Transaction hash: ${txHash}`);
     
     // Submit through backend
-    const response = await throttledFetch(`${BACKEND_API_URL}/submit-transaction`, {
+    const response = await fetch(`${BACKEND_API_URL}/submit-transaction`, {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json'
