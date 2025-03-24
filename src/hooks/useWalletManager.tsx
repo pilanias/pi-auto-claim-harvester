@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { WalletData, LogEntry } from '@/lib/types';
@@ -16,7 +17,7 @@ export function useWalletManager() {
   const [isInitialized, setIsInitialized] = useState(false);
   const lastSyncRef = useRef<number>(0);
   const isSyncingRef = useRef<boolean>(false);
-  const lastErrorLogTimeRef = useRef<number>(0>; // To throttle error logs
+  const lastErrorLogTimeRef = useRef<number>(0); // To throttle error logs
 
   // Throttled error logging function
   const throttledErrorLog = useCallback((message: string, error: any, minInterval = 10000) => {
