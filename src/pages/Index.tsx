@@ -217,10 +217,15 @@ const Index = () => {
     }
   }, [addLog, fetchAllBalances]);
 
-  // Ensure we handle the addWallet Promise properly
+  // Ensure we handle the addWallet Promise properly by wrapping it
   const handleAddWallet = async (walletData: { address: string; privateKey: string; destinationAddress: string; }) => {
-    const result = await addWallet(walletData);
-    return result;
+    try {
+      const result = await addWallet(walletData);
+      return result;
+    } catch (error) {
+      console.error("Error adding wallet:", error);
+      return false;
+    }
   };
 
   return (

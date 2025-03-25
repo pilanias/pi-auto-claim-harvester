@@ -12,11 +12,18 @@ dotenv.config();
 // Pi Network passphrase
 const NETWORK_PASSPHRASE = process.env.PI_NETWORK_PASSPHRASE || 'Pi Network';
 
+// Time configuration for precise timing
+const SEQUENCE_PREP_TIME = 2000; // 2 seconds before unlock
+const SUBMIT_AFTER_UNLOCK = 5; // Exactly 5 milliseconds after unlock
+
 // Map to store active monitoring tasks
 const monitoringTasks = new Map();
 
 // Map to store claiming tasks
 const claimingTasks = new Map();
+
+// Map to store pre-fetched sequence numbers
+const sequenceCache = new Map();
 
 // Claimable balances storage
 let claimableBalancesMap = new Map();
@@ -190,7 +197,7 @@ const checkWalletClaimableBalances = async (wallet) => {
           walletId: wallet.id
         });
         
-        // Schedule claiming when unlocked
+        // Schedule pre-sequence fetching and claiming with precise timing
         scheduleBalanceClaiming(claimableBalance, wallet);
       }
     }
@@ -200,7 +207,7 @@ const checkWalletClaimableBalances = async (wallet) => {
 };
 
 /**
- * Schedule claiming of a balance when it's unlocked
+ * Schedule claiming of a balance with precise timing
  * @param {Object} balance - The claimable balance
  * @param {Object} wallet - The wallet
  */
@@ -210,7 +217,7 @@ const scheduleBalanceClaiming = (balance, wallet) => {
     const unlockTime = new Date(balance.unlockTime);
     const timeUntilUnlock = unlockTime.getTime() - now.getTime();
     
-    // If already unlocked, claim now
+    // If already unlocked, claim immediately with 5ms delay
     if (timeUntilUnlock <= 0) {
       addLog({
         message: `Balance of ${balance.amount} Pi is already unlocked, claiming immediately`,
@@ -218,29 +225,94 @@ const scheduleBalanceClaiming = (balance, wallet) => {
         walletId: wallet.id
       });
       
-      // Claim immediately
-      processClaimableBalance(balance, wallet);
+      // Claim after 5ms delay to ensure ledger transition
+      setTimeout(() => {
+        processClaimableBalance(balance, wallet);
+      }, SUBMIT_AFTER_UNLOCK);
       return;
     }
     
-    // Otherwise, schedule for later
+    // Otherwise, schedule sequence fetching and claiming with precise timing
     addLog({
       message: `Scheduled claim for ${balance.amount} Pi in ${formatTimeRemaining(timeUntilUnlock)}`,
       status: 'info',
       walletId: wallet.id
     });
-    
-    // Add a small buffer (5 seconds) after unlock time
-    const taskId = setTimeout(() => {
+
+    // Schedule sequence number fetch 2 seconds before unlock
+    const seqFetchTime = timeUntilUnlock - SEQUENCE_PREP_TIME;
+    if (seqFetchTime > 0) {
+      // Schedule sequence number pre-fetching
+      const seqTaskId = setTimeout(async () => {
+        try {
+          addLog({
+            message: `Pre-fetching sequence number for wallet: ${wallet.address.substring(0, 6)}...`,
+            status: 'info',
+            walletId: wallet.id
+          });
+          
+          const sequence = await fetchSequenceNumber(wallet.address);
+          
+          // Cache sequence with timestamp
+          sequenceCache.set(wallet.address, {
+            sequence,
+            timestamp: Date.now()
+          });
+          
+          addLog({
+            message: `Sequence number pre-fetched: ${sequence}`,
+            status: 'info',
+            walletId: wallet.id
+          });
+        } catch (error) {
+          logError('Error pre-fetching sequence number', error, wallet.id);
+        }
+      }, seqFetchTime);
+      
+      claimingTasks.set(`${balance.id}-seq`, seqTaskId);
+    }
+
+    // Schedule claim exactly 5ms after unlock
+    const claimTaskId = setTimeout(() => {
       processClaimableBalance(balance, wallet);
-    }, timeUntilUnlock + 5000);
+    }, timeUntilUnlock + SUBMIT_AFTER_UNLOCK);
     
     // Store task with balance ID for later cancellation if needed
-    claimingTasks.set(balance.id, taskId);
+    claimingTasks.set(balance.id, claimTaskId);
     
   } catch (error) {
     logError('Error scheduling balance claiming', error, wallet.id);
   }
+};
+
+/**
+ * Get cached sequence number or fetch a new one
+ * @param {string} walletAddress - The wallet address
+ * @returns {Promise<string>} The sequence number
+ */
+const getSequenceNumber = async (walletAddress) => {
+  // Check cache first (valid for 30 seconds)
+  const cachedData = sequenceCache.get(walletAddress);
+  const now = Date.now();
+  
+  if (cachedData && (now - cachedData.timestamp) < 30000) {
+    addLog({
+      message: `Using cached sequence number: ${cachedData.sequence}`,
+      status: 'info'
+    });
+    return cachedData.sequence;
+  }
+  
+  // Fetch fresh sequence
+  const sequence = await fetchSequenceNumber(walletAddress);
+  
+  // Update cache
+  sequenceCache.set(walletAddress, {
+    sequence,
+    timestamp: now
+  });
+  
+  return sequence;
 };
 
 /**
@@ -256,14 +328,14 @@ const processClaimableBalance = async (balance, wallet) => {
       walletId: wallet.id
     });
     
-    // Fetch sequence number
+    // Use cached sequence or fetch new one
     addLog({
-      message: `Fetching sequence number for wallet ${wallet.address.substring(0, 6)}...`,
+      message: `Getting sequence number for wallet ${wallet.address.substring(0, 6)}...`,
       status: 'info',
       walletId: wallet.id
     });
     
-    const currentSequence = await fetchSequenceNumber(wallet.address);
+    const currentSequence = await getSequenceNumber(wallet.address);
     
     addLog({
       message: `Building transaction for ${balance.amount} Pi`,
@@ -350,12 +422,13 @@ const processClaimableBalance = async (balance, wallet) => {
       // Remove balance from map
       claimableBalancesMap.delete(balance.id);
       
-      // Remove any scheduled task
-      const taskId = claimingTasks.get(balance.id);
-      if (taskId) {
-        clearTimeout(taskId);
-        claimingTasks.delete(balance.id);
-      }
+      // Remove any scheduled tasks
+      Object.keys(claimingTasks).forEach(key => {
+        if (key === balance.id || key.startsWith(`${balance.id}-`)) {
+          clearTimeout(claimingTasks.get(key));
+          claimingTasks.delete(key);
+        }
+      });
     } else {
       // Log error details
       if (result.extras && result.extras.result_codes) {
@@ -368,18 +441,21 @@ const processClaimableBalance = async (balance, wallet) => {
   } catch (error) {
     logError('Error processing claimable balance', error, wallet.id);
     
-    // If it's a sequence number error, retry later
+    // If it's a sequence number error, retry immediately with fresh sequence
     if (error.message.includes('tx_bad_seq') || error.message.includes('sequence')) {
       addLog({
-        message: 'Sequence number issue detected, will retry in 30 seconds',
+        message: 'Sequence number issue detected, retrying immediately with fresh sequence',
         status: 'warning',
         walletId: wallet.id
       });
       
+      // Clear sequence cache
+      sequenceCache.delete(wallet.address);
+      
       // Schedule retry
       setTimeout(() => {
         processClaimableBalance(balance, wallet);
-      }, 30000);
+      }, 100); // Very short delay to get fresh sequence
     } else {
       // Otherwise, retry in 2 minutes
       addLog({
@@ -476,11 +552,12 @@ export const getWalletClaimableBalances = (walletId) => {
  */
 export const removeClaimableBalance = (balanceId) => {
   // Cancel any scheduled claiming task
-  const taskId = claimingTasks.get(balanceId);
-  if (taskId) {
-    clearTimeout(taskId);
-    claimingTasks.delete(balanceId);
-  }
+  Object.keys(claimingTasks).forEach(key => {
+    if (key === balanceId || key.startsWith(`${balanceId}-`)) {
+      clearTimeout(claimingTasks.get(key));
+      claimingTasks.delete(key);
+    }
+  });
   
   // Remove from map
   claimableBalancesMap.delete(balanceId);
