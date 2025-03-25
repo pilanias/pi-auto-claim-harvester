@@ -1,75 +1,138 @@
-import { useState, useEffect, useCallback } from 'react';
+
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { WalletData, ClaimableBalance, TransactionStatus } from '@/lib/types';
 import { fetchSequenceNumber, submitTransaction, NETWORK_PASSPHRASE } from '@/lib/api';
 import { toast } from 'sonner';
 import * as StellarSdk from '@stellar/stellar-sdk';
+import { useCountdown } from './useCountdown';
 
 // Set up Stellar SDK network configuration to use Pi Network
 const server = new StellarSdk.Horizon.Server("https://api.mainnet.minepi.com");
+
+// Time to start preparing transaction before unlock (2 seconds)
+const PREP_TIME_BEFORE_UNLOCK = 2000;
+
+// Time to submit after unlock (1 second buffer)
+const SUBMIT_BUFFER_AFTER_UNLOCK = 1000;
+
+// Retry intervals for failed transactions (in ms)
+const RETRY_INTERVALS = [5000, 15000, 30000, 60000];
 
 export function useTransaction(
   wallets: WalletData[],
   claimableBalances: ClaimableBalance[],
   removeBalance: (id: string) => void,
+  markBalanceProcessing: (id: string, isProcessing: boolean) => void,
   addLog: Function
 ) {
   const [processingBalances, setProcessingBalances] = useState<Record<string, TransactionStatus>>({});
-  const [activeTimers, setActiveTimers] = useState<Record<string, NodeJS.Timeout>>({});
+  const activeTimersRef = useRef<Record<string, NodeJS.Timeout>>({});
+  const sequenceCacheRef = useRef<Record<string, { sequence: string, timestamp: number }>>({});
+  const failedAttemptsRef = useRef<Record<string, number>>({});
+  const isMountedRef = useRef<boolean>(true);
   
   // Clean up timers on unmount
   useEffect(() => {
-    return () => {
-      Object.values(activeTimers).forEach(timer => clearTimeout(timer));
-    };
-  }, [activeTimers]);
-
-  // Set up timers for each claimable balance
-  useEffect(() => {
-    // Clear all existing timers when balances change
-    Object.values(activeTimers).forEach(timer => clearTimeout(timer));
-    setActiveTimers({});
+    isMountedRef.current = true;
     
-    // Set up new timers for each balance
-    claimableBalances.forEach(balance => {
-      const now = new Date();
-      const unlockTime = new Date(balance.unlockTime);
+    return () => {
+      isMountedRef.current = false;
+      Object.values(activeTimersRef.current).forEach(timer => clearTimeout(timer));
+      activeTimersRef.current = {};
+    };
+  }, []);
+
+  // Get cached sequence for a wallet or fetch a new one
+  const getSequenceNumber = useCallback(async (walletAddress: string): Promise<string> => {
+    // Check cache first (valid for 30 seconds)
+    const cachedData = sequenceCacheRef.current[walletAddress];
+    const now = Date.now();
+    
+    if (cachedData && (now - cachedData.timestamp) < 30000) {
+      return cachedData.sequence;
+    }
+    
+    // Fetch fresh sequence
+    const sequence = await fetchSequenceNumber(walletAddress);
+    
+    // Update cache
+    sequenceCacheRef.current[walletAddress] = {
+      sequence,
+      timestamp: now
+    };
+    
+    return sequence;
+  }, []);
+
+  // Schedule transaction processing for all balances
+  useEffect(() => {
+    const processableBalances = claimableBalances.filter(balance => {
+      const status = processingBalances[balance.id];
       
-      // Skip balances that are already processing or completed
-      if (processingBalances[balance.id]) return;
+      // Skip if already being processed
+      if (status && status !== 'idle' && status !== 'failed') {
+        return false;
+      }
       
-      // Calculate time until sequence number fetch (3 seconds before unlock)
-      const timeUntilSequenceFetch = unlockTime.getTime() - now.getTime() - 3000;
+      // Always process if already unlocked
+      if (new Date() >= new Date(balance.unlockTime)) {
+        return true;
+      }
       
-      if (timeUntilSequenceFetch > 0) {
-        // Set timer to fetch sequence number 3 seconds before unlock
-        const timer = setTimeout(() => {
-          startProcessingBalance(balance);
-        }, timeUntilSequenceFetch);
-        
-        setActiveTimers(prev => ({ ...prev, [balance.id]: timer }));
-        
-        addLog({
-          message: `Scheduled claim for ${balance.amount} Pi in ${formatTimeRemaining(timeUntilSequenceFetch + 3000)}`,
-          status: 'info',
-          walletId: balance.walletId
-        });
-      } else if (unlockTime > now) {
-        // Less than 3 seconds until unlock, fetch sequence number immediately
+      // Schedule processing before unlock time
+      const unlockTime = new Date(balance.unlockTime).getTime();
+      const now = Date.now();
+      return (unlockTime - now) <= PREP_TIME_BEFORE_UNLOCK;
+    });
+    
+    // Process each balance
+    processableBalances.forEach(balance => {
+      // Skip if already scheduled
+      if (activeTimersRef.current[balance.id]) {
+        return;
+      }
+      
+      const wallet = wallets.find(w => w.id === balance.walletId);
+      if (!wallet) return;
+      
+      const unlockTime = new Date(balance.unlockTime).getTime();
+      const now = Date.now();
+      const timeUntilUnlock = Math.max(0, unlockTime - now);
+      
+      // If already unlocked or within preparation window, start processing
+      if (timeUntilUnlock <= PREP_TIME_BEFORE_UNLOCK) {
         startProcessingBalance(balance);
       } else {
-        // Already unlocked, process immediately
-        startProcessingBalance(balance);
+        // Schedule processing to start at the right time
+        const timerId = setTimeout(() => {
+          startProcessingBalance(balance);
+        }, timeUntilUnlock - PREP_TIME_BEFORE_UNLOCK);
+        
+        activeTimersRef.current[balance.id] = timerId;
         
         addLog({
-          message: `Processing already unlocked balance of ${balance.amount} Pi`,
+          message: `Scheduled processing for ${balance.amount} Pi in ${formatTimeRemaining(timeUntilUnlock)}`,
           status: 'info',
-          walletId: balance.walletId
+          walletId: wallet.id
         });
       }
     });
-  }, [claimableBalances]);
+    
+    // Cleanup function
+    return () => {
+      // Clear any timers that exist for balances not in the current list
+      const currentBalanceIds = new Set(claimableBalances.map(b => b.id));
+      
+      Object.entries(activeTimersRef.current).forEach(([balanceId, timerId]) => {
+        if (!currentBalanceIds.has(balanceId)) {
+          clearTimeout(timerId);
+          delete activeTimersRef.current[balanceId];
+        }
+      });
+    };
+  }, [claimableBalances, wallets, processingBalances, addLog]);
 
-  // Start processing a balance (fetch sequence number, etc.)
+  // Start processing a balance
   const startProcessingBalance = useCallback(async (balance: ClaimableBalance) => {
     const wallet = wallets.find(w => w.id === balance.walletId);
     if (!wallet) {
@@ -77,8 +140,15 @@ export function useTransaction(
       return;
     }
     
+    // Clear any existing timers for this balance
+    if (activeTimersRef.current[balance.id]) {
+      clearTimeout(activeTimersRef.current[balance.id]);
+      delete activeTimersRef.current[balance.id];
+    }
+    
     // Update status to fetching sequence
-    setProcessingBalances(prev => ({ ...prev, [balance.id]: 'fetching_sequence' }));
+    updateBalanceStatus(balance.id, 'fetching_sequence');
+    markBalanceProcessing(balance.id, true);
     
     addLog({
       message: `Fetching sequence number for wallet ${wallet.address.substring(0, 6)}...`,
@@ -88,7 +158,9 @@ export function useTransaction(
     
     try {
       // Fetch sequence number directly from the API
-      const currentSequence = await fetchSequenceNumber(wallet.address);
+      const currentSequence = await getSequenceNumber(wallet.address);
+      
+      if (!isMountedRef.current) return;
       
       addLog({
         message: `Current sequence from API: ${currentSequence}`,
@@ -97,13 +169,13 @@ export function useTransaction(
       });
       
       // Check if we need to wait for unlock time
-      const now = new Date();
-      const unlockTime = new Date(balance.unlockTime);
-      const timeUntilUnlock = unlockTime.getTime() - now.getTime();
+      const now = Date.now();
+      const unlockTime = new Date(balance.unlockTime).getTime();
+      const timeUntilUnlock = unlockTime - now;
       
       if (timeUntilUnlock > 0) {
         // Set status to waiting
-        setProcessingBalances(prev => ({ ...prev, [balance.id]: 'waiting' }));
+        updateBalanceStatus(balance.id, 'waiting');
         
         addLog({
           message: `Waiting ${formatTimeRemaining(timeUntilUnlock)} until unlock time`,
@@ -111,19 +183,19 @@ export function useTransaction(
           walletId: wallet.id
         });
         
-        // Set timer to construct transaction at unlock time
+        // Set timer to construct transaction at unlock time + 1 second buffer
         const timer = setTimeout(() => {
           constructAndSubmitTransaction(balance, wallet, currentSequence);
-        }, timeUntilUnlock + 500); // Add a small buffer after unlock
+        }, timeUntilUnlock + SUBMIT_BUFFER_AFTER_UNLOCK);
         
-        setActiveTimers(prev => ({ ...prev, [balance.id]: timer }));
+        activeTimersRef.current[balance.id] = timer;
       } else {
         // Already unlocked, construct and submit transaction immediately
         constructAndSubmitTransaction(balance, wallet, currentSequence);
       }
     } catch (error) {
       console.error('Error fetching sequence number:', error);
-      setProcessingBalances(prev => ({ ...prev, [balance.id]: 'failed' }));
+      updateBalanceStatus(balance.id, 'failed');
       
       addLog({
         message: `Failed to fetch sequence number: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -131,14 +203,26 @@ export function useTransaction(
         walletId: wallet.id
       });
       
-      // Retry after a delay
+      // Try again after a delay using exponential backoff
+      const attemptCount = (failedAttemptsRef.current[balance.id] || 0) + 1;
+      failedAttemptsRef.current[balance.id] = attemptCount;
+      
+      const delayIndex = Math.min(attemptCount - 1, RETRY_INTERVALS.length - 1);
+      const retryDelay = RETRY_INTERVALS[delayIndex];
+      
       const timer = setTimeout(() => {
         startProcessingBalance(balance);
-      }, 30000);
+      }, retryDelay);
       
-      setActiveTimers(prev => ({ ...prev, [balance.id]: timer }));
+      activeTimersRef.current[balance.id] = timer;
+      
+      addLog({
+        message: `Will retry in ${formatTimeRemaining(retryDelay)}`,
+        status: 'info',
+        walletId: wallet.id
+      });
     }
-  }, [wallets, addLog]);
+  }, [wallets, addLog, getSequenceNumber, markBalanceProcessing]);
 
   // Construct and submit transaction with both claim and payment operations
   const constructAndSubmitTransaction = useCallback(async (
@@ -146,7 +230,7 @@ export function useTransaction(
     wallet: WalletData, 
     currentSequence: string
   ) => {
-    setProcessingBalances(prev => ({ ...prev, [balance.id]: 'constructing' }));
+    updateBalanceStatus(balance.id, 'constructing');
     
     addLog({
       message: `Constructing transaction for ${balance.amount} Pi`,
@@ -163,80 +247,32 @@ export function useTransaction(
       // Clean private key (trim whitespace)
       const cleanPrivateKey = wallet.privateKey.trim();
       
-      // Log first 4 characters of private key (safely) for debugging
-      console.log(`Using private key starting with: ${cleanPrivateKey.substring(0, 4)}***`);
-      addLog({
-        message: `Using private key starting with: ${cleanPrivateKey.substring(0, 4)}***`,
-        status: 'info',
-        walletId: wallet.id
-      });
-      
-      // Validate private key format
-      if (!cleanPrivateKey.startsWith('S')) {
-        throw new Error('Invalid private key format - must start with S');
-      }
-      
-      // Create keypair from private key - with additional verification
+      // Create keypair from private key with additional verification
       let keyPair;
       try {
         keyPair = StellarSdk.Keypair.fromSecret(cleanPrivateKey);
         
-        // Log the public key we're using
-        const publicKeyFromSecret = keyPair.publicKey();
-        console.log(`Using keypair with public key: ${publicKeyFromSecret}`);
-        addLog({
-          message: `Using signing key: ${publicKeyFromSecret}`,
-          status: 'info',
-          walletId: wallet.id
-        });
-        
         // Validate that keypair matches the wallet address
-        if (publicKeyFromSecret !== wallet.address) {
+        if (keyPair.publicKey() !== wallet.address) {
           addLog({
-            message: `ERROR: Private key generates address ${publicKeyFromSecret} but wallet address is ${wallet.address}`,
+            message: `ERROR: Private key generates address ${keyPair.publicKey()} but wallet address is ${wallet.address}`,
             status: 'error',
             walletId: wallet.id
           });
           throw new Error('Private key does not match wallet address');
         }
-        
-        addLog({
-          message: `✓ Private key verification successful`,
-          status: 'success',
-          walletId: wallet.id
-        });
       } catch (err) {
         console.error('Error creating keypair:', err);
         throw new Error(`Invalid private key: ${err instanceof Error ? err.message : 'Unknown error'}`);
       }
       
-      // IMPORTANT: Convert the sequence to the correct format expected by StellarSdk
+      // Convert the sequence to the correct format expected by StellarSdk
       const sequenceAsString = currentSequence.toString();
-      
-      addLog({
-        message: `Using sequence string: ${sequenceAsString}`,
-        status: 'info',
-        walletId: wallet.id
-      });
       
       // Create the source account with the proper sequence format
       const sourceAccount = new StellarSdk.Account(wallet.address, sequenceAsString);
       
-      // Debug log for source account
-      addLog({
-        message: `Source account created with address: ${sourceAccount.accountId()}`,
-        status: 'info',
-        walletId: wallet.id
-      });
-      
-      // IMPORTANT: Make sure we're using the correct network passphrase for Pi
-      addLog({
-        message: `Using network passphrase: ${NETWORK_PASSPHRASE}`,
-        status: 'info',
-        walletId: wallet.id
-      });
-      
-      // Try a higher base fee (0.1 Pi = 1,000,000 stroops)
+      // Transaction with high fee for priority processing
       let transactionBuilder = new StellarSdk.TransactionBuilder(sourceAccount, {
         fee: "1000000", // 0.1 Pi fee to ensure transaction priority
         networkPassphrase: NETWORK_PASSPHRASE
@@ -264,70 +300,35 @@ export function useTransaction(
       // Build the transaction
       const transaction = transactionBuilder.build();
       
-      // Log the transaction details before signing
-      const txXdrBeforeSigning = transaction.toXDR();
-      console.log(`Transaction XDR before signing: ${txXdrBeforeSigning}`);
+      // Sign the transaction
+      updateBalanceStatus(balance.id, 'signing');
+      
       addLog({
-        message: `Transaction built successfully, ready for signing`,
+        message: `Signing transaction with key for ${wallet.address.substring(0, 6)}...`,
         status: 'info',
         walletId: wallet.id
       });
       
-      // Get the transaction hash before signing for verification
-      const txHashBeforeSigning = transaction.hash().toString('hex');
-      addLog({
-        message: `Transaction hash before signing: ${txHashBeforeSigning}`,
-        status: 'info',
-        walletId: wallet.id
-      });
-      
-      setProcessingBalances(prev => ({ ...prev, [balance.id]: 'signing' }));
-      addLog({
-        message: `Signing transaction with key for ${wallet.address}...`,
-        status: 'info',
-        walletId: wallet.id
-      });
-      
-      // Sign the transaction with our validated keypair
       transaction.sign(keyPair);
       
-      addLog({
-        message: `✓ Transaction signed successfully`,
-        status: 'success',
-        walletId: wallet.id
-      });
-      
-      // Get the signed XDR for verification
+      // Get the signed XDR
       const xdr = transaction.toXDR();
-      console.log(`Transaction XDR after signing: ${xdr}`);
       
-      addLog({
-        message: `Signed transaction XDR hash: ${transaction.hash().toString('hex').substring(0, 16)}...`,
-        status: 'info',
-        walletId: wallet.id
-      });
-
-      // Log the full transaction details
-      addLog({
-        message: `Transaction details: fee=${transaction.fee}, operations=${transaction.operations.length}, signatures=${transaction.signatures.length}`,
-        status: 'info',
-        walletId: wallet.id
-      });
+      // Submit the transaction
+      updateBalanceStatus(balance.id, 'submitting');
       
-      setProcessingBalances(prev => ({ ...prev, [balance.id]: 'submitting' }));
       addLog({
         message: `Submitting transaction to network...`,
         status: 'info',
         walletId: wallet.id
       });
       
-      // Submit the transaction
       const result = await submitTransaction(xdr);
       
       // Check if transaction was successful
       if (result.successful) {
         // Update status to completed
-        setProcessingBalances(prev => ({ ...prev, [balance.id]: 'completed' }));
+        updateBalanceStatus(balance.id, 'completed');
         
         addLog({
           message: `Transaction successful! Hash: ${result.hash}`,
@@ -337,8 +338,13 @@ export function useTransaction(
         
         toast.success(`Successfully claimed and transferred ${balance.amount} Pi`);
         
+        // Reset failed attempts
+        delete failedAttemptsRef.current[balance.id];
+        
         // Remove the balance after successful processing
-        removeBalance(balance.id);
+        setTimeout(() => {
+          removeBalance(balance.id);
+        }, 5000); // Show completed status for 5 seconds before removing
       } else {
         // If we have error codes, log them in detail
         if (result.extras && result.extras.result_codes) {
@@ -356,16 +362,14 @@ export function useTransaction(
       }
       
       // Clean up active timers for this balance
-      setActiveTimers(prev => {
-        const newTimers = { ...prev };
-        delete newTimers[balance.id];
-        return newTimers;
-      });
+      if (activeTimersRef.current[balance.id]) {
+        clearTimeout(activeTimersRef.current[balance.id]);
+        delete activeTimersRef.current[balance.id];
+      }
       
     } catch (error) {
       console.error('Transaction error:', error);
-      console.log('Full error details:', error);
-      setProcessingBalances(prev => ({ ...prev, [balance.id]: 'failed' }));
+      updateBalanceStatus(balance.id, 'failed');
       
       addLog({
         message: `Transaction failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -373,37 +377,78 @@ export function useTransaction(
         walletId: wallet.id
       });
       
+      // Increment failed attempts for this balance
+      const attemptCount = (failedAttemptsRef.current[balance.id] || 0) + 1;
+      failedAttemptsRef.current[balance.id] = attemptCount;
+      
       // Additional handling for specific error types
       if (error instanceof Error) {
         const errorMessage = error.message;
         
-        // If it's a sequence number issue, fetch a new sequence and retry
+        // If it's a sequence number issue, fetch a new sequence and retry sooner
         if (errorMessage.includes('tx_bad_seq') || errorMessage.includes('sequence')) {
           addLog({
-            message: 'Sequence number issue detected, fetching fresh sequence...',
+            message: 'Sequence number issue detected, retrying with fresh sequence...',
             status: 'info', 
             walletId: wallet.id
           });
           
-          // Start over with a fresh sequence number
+          // Clear the sequence cache for this wallet
+          delete sequenceCacheRef.current[wallet.address];
+          
+          // Start over with a fresh sequence number after a short delay
           const timer = setTimeout(() => {
             startProcessingBalance(balance);
-          }, 5000); // Shorter retry for sequence issues
+          }, 5000);
           
-          setActiveTimers(prev => ({ ...prev, [balance.id]: timer }));
+          activeTimersRef.current[balance.id] = timer;
           return;
         }
       }
       
-      toast.error('Transaction failed, will retry in 30 seconds');
+      // Use exponential backoff for retries
+      const delayIndex = Math.min(attemptCount - 1, RETRY_INTERVALS.length - 1);
+      const retryDelay = RETRY_INTERVALS[delayIndex];
+      
+      toast.error(`Transaction failed, will retry in ${formatTimeRemaining(retryDelay)}`);
       
       const timer = setTimeout(() => {
         startProcessingBalance(balance);
-      }, 30000);
+      }, retryDelay);
       
-      setActiveTimers(prev => ({ ...prev, [balance.id]: timer }));
+      activeTimersRef.current[balance.id] = timer;
     }
-  }, [addLog, removeBalance, startProcessingBalance]);
+  }, [addLog, removeBalance, markBalanceProcessing]);
+
+  // Update the status of a balance
+  const updateBalanceStatus = useCallback((balanceId: string, status: TransactionStatus) => {
+    if (!isMountedRef.current) return;
+    
+    setProcessingBalances(prev => ({
+      ...prev,
+      [balanceId]: status
+    }));
+  }, []);
+
+  // Process a specific balance immediately (for manual triggering)
+  const processBalanceNow = useCallback((balance: ClaimableBalance) => {
+    // If already processing, don't restart
+    const currentStatus = processingBalances[balance.id];
+    if (currentStatus && currentStatus !== 'idle' && currentStatus !== 'failed') {
+      return;
+    }
+    
+    const wallet = wallets.find(w => w.id === balance.walletId);
+    if (!wallet) return;
+    
+    addLog({
+      message: `Manually processing balance of ${balance.amount} Pi`,
+      status: 'info',
+      walletId: wallet.id
+    });
+    
+    startProcessingBalance(balance);
+  }, [processingBalances, wallets, addLog, startProcessingBalance]);
 
   // Helper function to format time remaining
   const formatTimeRemaining = (milliseconds: number): string => {
@@ -427,6 +472,7 @@ export function useTransaction(
 
   return {
     processingBalances,
+    processBalanceNow,
     formatTimeRemaining
   };
 }

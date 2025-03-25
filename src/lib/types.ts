@@ -12,6 +12,8 @@ export type ClaimableBalance = {
   amount: string;
   unlockTime: Date;
   walletId: string;
+  lastChecked?: Date;
+  isProcessing?: boolean;
 };
 
 export type TransactionStatus = 

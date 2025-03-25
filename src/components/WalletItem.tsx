@@ -4,14 +4,15 @@ import { WalletData, ClaimableBalance, TransactionStatus } from '@/lib/types';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import StatusIndicator from './StatusIndicator';
-import { Wallet, ArrowRight, Timer, Coins, Trash2 } from 'lucide-react';
+import BalanceTimer from './BalanceTimer';
+import { Wallet, ArrowRight, Coins, Trash2, PlayCircle } from 'lucide-react';
 
 interface WalletItemProps {
   wallet: WalletData;
   claimableBalances: ClaimableBalance[];
   processingStatuses: Record<string, TransactionStatus>;
-  formatTimeRemaining: (milliseconds: number) => string;
   onRemove: (walletId: string) => void;
+  onForceProcess?: (balance: ClaimableBalance) => void;
   maskAddress: (address: string) => string;
 }
 
@@ -19,8 +20,8 @@ const WalletItem: React.FC<WalletItemProps> = ({
   wallet,
   claimableBalances,
   processingStatuses,
-  formatTimeRemaining,
   onRemove,
+  onForceProcess,
   maskAddress
 }) => {
   // Filter balances for this wallet
@@ -34,9 +35,8 @@ const WalletItem: React.FC<WalletItemProps> = ({
     0
   );
 
-  const getTimeRemaining = (unlockTime: Date) => {
-    const now = new Date();
-    return unlockTime.getTime() - now.getTime();
+  const isBalanceUnlocked = (unlockTime: Date) => {
+    return new Date() >= new Date(unlockTime);
   };
 
   return (
@@ -73,17 +73,15 @@ const WalletItem: React.FC<WalletItemProps> = ({
             </div>
             
             {walletBalances.map((balance) => {
-              const timeRemaining = getTimeRemaining(balance.unlockTime);
-              const isNearUnlock = timeRemaining > 0 && timeRemaining < 60000; // Within 1 minute
-              const isUnlocked = timeRemaining <= 0;
+              const isUnlocked = isBalanceUnlocked(balance.unlockTime);
               const status = processingStatuses[balance.id] || 'idle';
+              const isProcessing = status !== 'idle' && status !== 'failed';
               
               return (
                 <div 
                   key={balance.id} 
                   className={`rounded-md px-3 py-2 text-xs border
                     ${isUnlocked ? 'bg-primary/5 border-primary/20' : 
-                      isNearUnlock ? 'bg-amber-50 border-amber-200' : 
                       'bg-secondary/50 border-border'}
                   `}
                 >
@@ -93,19 +91,30 @@ const WalletItem: React.FC<WalletItemProps> = ({
                   </div>
                   
                   <div className="flex justify-between items-center mb-1">
-                    <span className="text-muted-foreground flex items-center gap-1">
-                      <Timer className="w-3 h-3" /> Unlock:
-                    </span>
-                    <span className={`font-medium ${isUnlocked ? 'text-green-500' : isNearUnlock ? 'text-amber-500' : ''}`}>
-                      {isUnlocked 
-                        ? 'Unlocked' 
-                        : formatTimeRemaining(timeRemaining)}
-                    </span>
+                    <span className="text-muted-foreground">Unlock:</span>
+                    <BalanceTimer 
+                      unlockTime={balance.unlockTime}
+                      className="justify-end"
+                    />
                   </div>
                   
                   <div className="flex justify-between items-center mt-2 pt-1 border-t border-border/50">
                     <span className="text-muted-foreground">Status:</span>
-                    <StatusIndicator status={status} />
+                    <div className="flex items-center gap-2">
+                      <StatusIndicator status={status} />
+                      
+                      {isUnlocked && status === 'idle' && onForceProcess && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-5 w-5 rounded-full"
+                          onClick={() => onForceProcess(balance)}
+                          title="Force process"
+                        >
+                          <PlayCircle className="h-4 w-4 text-green-500" />
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 </div>
               );

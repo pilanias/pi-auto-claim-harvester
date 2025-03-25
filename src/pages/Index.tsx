@@ -1,5 +1,5 @@
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useCallback } from 'react';
 import { useWalletManager } from '@/hooks/useWalletManager';
 import { useClaimableBalances } from '@/hooks/useClaimableBalances';
 import { useTransaction } from '@/hooks/useTransaction';
@@ -10,6 +10,7 @@ import { RefreshCw, Coins, Wallet, GitFork } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { ClaimableBalance } from '@/lib/types';
 
 const Index = () => {
   // Initialize hooks
@@ -20,13 +21,15 @@ const Index = () => {
     isLoading,
     lastUpdate,
     fetchAllBalances,
-    removeBalance
+    removeBalance,
+    markBalanceProcessing
   } = useClaimableBalances(wallets, addLog);
   
   const {
     processingBalances,
+    processBalanceNow,
     formatTimeRemaining
-  } = useTransaction(wallets, claimableBalances, removeBalance, addLog);
+  } = useTransaction(wallets, claimableBalances, removeBalance, markBalanceProcessing, addLog);
 
   // Calculate total Pi pending
   const totalPending = claimableBalances.reduce(
@@ -53,13 +56,18 @@ const Index = () => {
     };
   }, []);
 
-  const handleRefresh = () => {
-    fetchAllBalances();
+  const handleRefresh = useCallback(() => {
+    fetchAllBalances(true); // Force refresh
     addLog({
       message: 'Manually refreshed claimable balances',
       status: 'info'
     });
-  };
+  }, [fetchAllBalances, addLog]);
+
+  // Handle force processing a balance
+  const handleForceProcess = useCallback((balance: ClaimableBalance) => {
+    processBalanceNow(balance);
+  }, [processBalanceNow]);
 
   // Wrapper function to handle the promise from addWallet
   const handleAddWallet = async (walletData: {
@@ -68,8 +76,7 @@ const Index = () => {
     destinationAddress: string;
   }) => {
     try {
-      const result = await addWallet(walletData);
-      return result;
+      return await addWallet(walletData);
     } catch (error) {
       console.error('Error in handleAddWallet:', error);
       return false;
@@ -160,8 +167,8 @@ const Index = () => {
             wallets={wallets}
             claimableBalances={claimableBalances}
             processingStatuses={processingBalances}
-            formatTimeRemaining={formatTimeRemaining}
             onRemoveWallet={removeWallet}
+            onForceProcess={handleForceProcess}
             maskAddress={maskAddress}
           />
         </div>
