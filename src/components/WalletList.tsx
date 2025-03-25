@@ -20,6 +20,9 @@ const WalletList: React.FC<WalletListProps> = ({
   onForceProcess,
   maskAddress
 }) => {
+  // Ensure we have claimable balances array
+  const safeClaimableBalances = Array.isArray(claimableBalances) ? claimableBalances : [];
+  
   if (wallets.length === 0) {
     return (
       <div className="text-center p-8 border border-dashed rounded-lg bg-muted/30">
@@ -34,7 +37,7 @@ const WalletList: React.FC<WalletListProps> = ({
         <WalletItem
           key={wallet.id}
           wallet={wallet}
-          claimableBalances={claimableBalances.filter(b => b.walletId === wallet.id)}
+          claimableBalances={safeClaimableBalances.filter(b => b.walletId === wallet.id)}
           processingStatuses={processingStatuses}
           onRemove={onRemoveWallet}
           onForceProcess={onForceProcess}

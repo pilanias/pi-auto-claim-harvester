@@ -38,11 +38,28 @@ const Index = () => {
       // Fetch balances for each wallet in parallel
       const promises = wallets.map(async (wallet) => {
         try {
-          const balances = await fetchClaimableBalances(wallet.address);
-          return balances.map(balance => ({
-            ...balance,
-            walletId: wallet.id
-          }));
+          const response = await fetchClaimableBalances(wallet.address);
+          
+          // Handle API response properly
+          if (response && response._embedded && Array.isArray(response._embedded.records)) {
+            // Map the records to our ClaimableBalance format
+            return response._embedded.records.map((record: any) => {
+              // Extract unlock time using the same logic as in backend
+              const unlockTime = extractUnlockTime(record);
+              
+              return {
+                id: record.id,
+                amount: record.amount,
+                unlockTime,
+                walletId: wallet.id,
+                lastChecked: new Date()
+              };
+            });
+          }
+          
+          // If we get an invalid response, log it and return empty array
+          console.log('Invalid response from API for wallet', wallet.address, response);
+          return [];
         } catch (error) {
           console.error(`Error fetching balances for wallet ${wallet.address}:`, error);
           return [];
@@ -78,6 +95,35 @@ const Index = () => {
       setIsLoading(false);
     }
   }, [wallets, addLog]);
+
+  // Helper function to extract unlock time
+  const extractUnlockTime = (record: any): Date => {
+    // Check if we have claimants
+    if (!record.claimants || record.claimants.length === 0) {
+      return new Date(Date.now() + 1000 * 60 * 60 * 24); // Default to 24 hours from now if no claimants
+    }
+
+    try {
+      // Look for our wallet's claimant (usually first one)
+      const claimant = record.claimants[0];
+      
+      // If it has a "not" predicate (meaning it can only be claimed after a certain time)
+      if (claimant.predicate?.not?.abs_before) {
+        return new Date(claimant.predicate.not.abs_before);
+      }
+      
+      // If there's a second claimant with a "not" predicate, check that as well
+      if (record.claimants.length > 1 && record.claimants[1].predicate?.not?.abs_before) {
+        return new Date(record.claimants[1].predicate.not.abs_before);
+      }
+      
+      // Default fallback if we can't determine
+      return new Date(Date.now() + 1000 * 60 * 60 * 24); // Default to 24 hours from now
+    } catch (error) {
+      console.error("Error extracting unlock time:", error);
+      return new Date(Date.now() + 1000 * 60 * 60 * 24); // Default to 24 hours from now on error
+    }
+  };
 
   // Fetch balances initially and on wallet changes
   useEffect(() => {
@@ -171,6 +217,12 @@ const Index = () => {
     }
   }, [addLog, fetchAllBalances]);
 
+  // Ensure we handle the addWallet Promise properly
+  const handleAddWallet = async (walletData: { address: string; privateKey: string; destinationAddress: string; }) => {
+    const result = await addWallet(walletData);
+    return result;
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/30 bg-grid px-4 py-8 md:py-12">
       <div className="max-w-7xl mx-auto">
@@ -238,7 +290,7 @@ const Index = () => {
         {/* Main Content */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
           {/* Wallet Form */}
-          <WalletForm onAddWallet={addWallet} className="lg:col-span-1" />
+          <WalletForm onAddWallet={handleAddWallet} className="lg:col-span-1" />
           
           {/* Logs */}
           <LogDisplay 

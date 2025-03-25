@@ -24,6 +24,7 @@ const BalanceTimer: React.FC<BalanceTimerProps> = ({
       const remaining = Math.max(0, target - now);
       setTimeRemaining(remaining);
       
+      // Check if newly unlocked
       if (remaining <= 0 && !isUnlocked) {
         setIsUnlocked(true);
         if (onUnlock) {
