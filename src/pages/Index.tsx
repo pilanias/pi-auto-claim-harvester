@@ -1,4 +1,3 @@
-
 import React, { useEffect, useCallback } from 'react';
 import { useWalletManager } from '@/hooks/useWalletManager';
 import { useClaimableBalances } from '@/hooks/useClaimableBalances';
@@ -70,18 +69,19 @@ const Index = () => {
   }, [processBalanceNow]);
 
   // Wrapper function to handle the promise from addWallet
-  const handleAddWallet = async (walletData: {
+  const handleAddWallet = useCallback(async (walletData: {
     address: string;
     privateKey: string;
     destinationAddress: string;
   }) => {
     try {
-      return await addWallet(walletData);
+      await addWallet(walletData);
+      return true;
     } catch (error) {
       console.error('Error in handleAddWallet:', error);
       return false;
     }
-  };
+  }, [addWallet]);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/30 bg-grid px-4 py-8 md:py-12">

@@ -2,44 +2,45 @@
 import React from 'react';
 import { WalletData, ClaimableBalance, TransactionStatus } from '@/lib/types';
 import WalletItem from './WalletItem';
+import { useMediaQuery } from '@/hooks/use-mobile';
 
 interface WalletListProps {
   wallets: WalletData[];
   claimableBalances: ClaimableBalance[];
   processingStatuses: Record<string, TransactionStatus>;
-  formatTimeRemaining: (milliseconds: number) => string;
-  onRemoveWallet: (walletId: string) => void;
+  onRemoveWallet: (walletId: string) => void | Promise<void>;
+  onForceProcess?: (balance: ClaimableBalance) => void;
   maskAddress: (address: string) => string;
-  className?: string;
 }
 
 const WalletList: React.FC<WalletListProps> = ({
   wallets,
   claimableBalances,
   processingStatuses,
-  formatTimeRemaining,
   onRemoveWallet,
-  maskAddress,
-  className = ''
+  onForceProcess,
+  maskAddress
 }) => {
+  const isMobile = useMediaQuery('(max-width: 768px)');
+  
   if (wallets.length === 0) {
     return (
-      <div className={`p-8 text-center text-muted-foreground ${className}`}>
-        <p>No wallets added yet. Add a wallet to start monitoring for claimable balances.</p>
+      <div className="text-center p-8 border border-dashed rounded-lg bg-muted/30">
+        <p className="text-muted-foreground">No wallets added yet. Add a wallet to start monitoring.</p>
       </div>
     );
   }
-
+  
   return (
-    <div className={`grid gap-4 ${className}`}>
-      {wallets.map(wallet => (
+    <div className={isMobile ? 'space-y-4' : 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4'}>
+      {wallets.map((wallet) => (
         <WalletItem
           key={wallet.id}
           wallet={wallet}
-          claimableBalances={claimableBalances}
+          claimableBalances={claimableBalances.filter(b => b.walletId === wallet.id)}
           processingStatuses={processingStatuses}
-          formatTimeRemaining={formatTimeRemaining}
           onRemove={onRemoveWallet}
+          onForceProcess={onForceProcess}
           maskAddress={maskAddress}
         />
       ))}

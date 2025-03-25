@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { WalletData, ClaimableBalance, TransactionStatus } from '@/lib/types';
 import { Card, CardContent } from '@/components/ui/card';

@@ -23,28 +23,29 @@ export function useCountdown(targetDate: Date, options: CountdownOptions = {}) {
     }
   }, [targetDate]);
 
+  // Calculate remaining time
+  const calculateRemaining = () => {
+    const now = Date.now();
+    const remaining = Math.max(0, targetTimeRef.current - now);
+    
+    setTimeRemaining(remaining);
+    
+    if (onTick) {
+      onTick(remaining);
+    }
+    
+    if (remaining <= 0 && !isComplete) {
+      setIsComplete(true);
+      if (onComplete) {
+        onComplete();
+      }
+    }
+    
+    return remaining;
+  };
+
   // Set up and clean up the timer
   useEffect(() => {
-    const calculateRemaining = () => {
-      const now = Date.now();
-      const remaining = Math.max(0, targetTimeRef.current - now);
-      
-      setTimeRemaining(remaining);
-      
-      if (onTick) {
-        onTick(remaining);
-      }
-      
-      if (remaining <= 0 && !isComplete) {
-        setIsComplete(true);
-        if (onComplete) {
-          onComplete();
-        }
-      }
-      
-      return remaining;
-    };
-
     // Calculate immediately
     const remaining = calculateRemaining();
     
@@ -93,10 +94,4 @@ export function useCountdown(targetDate: Date, options: CountdownOptions = {}) {
       calculateRemaining();
     }
   };
-}
-
-function calculateRemaining() {
-  const now = Date.now();
-  const remaining = Math.max(0, targetTimeRef.current - now);
-  return remaining;
 }

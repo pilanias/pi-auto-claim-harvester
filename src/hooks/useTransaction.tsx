@@ -1,10 +1,8 @@
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { WalletData, ClaimableBalance, TransactionStatus } from '@/lib/types';
 import { fetchSequenceNumber, submitTransaction, NETWORK_PASSPHRASE } from '@/lib/api';
 import { toast } from 'sonner';
 import * as StellarSdk from '@stellar/stellar-sdk';
-import { useCountdown } from './useCountdown';
 
 // Set up Stellar SDK network configuration to use Pi Network
 const server = new StellarSdk.Horizon.Server("https://api.mainnet.minepi.com");
@@ -12,8 +10,8 @@ const server = new StellarSdk.Horizon.Server("https://api.mainnet.minepi.com");
 // Time to start preparing transaction before unlock (2 seconds)
 const PREP_TIME_BEFORE_UNLOCK = 2000;
 
-// Time to submit after unlock (1 second buffer)
-const SUBMIT_BUFFER_AFTER_UNLOCK = 1000;
+// No extra buffer needed - submit right at unlock time
+const SUBMIT_BUFFER_AFTER_UNLOCK = 0;
 
 // Retry intervals for failed transactions (in ms)
 const RETRY_INTERVALS = [5000, 15000, 30000, 60000];
@@ -63,6 +61,26 @@ export function useTransaction(
     
     return sequence;
   }, []);
+
+  // Helper function to format time remaining
+  const formatTimeRemaining = (milliseconds: number): string => {
+    if (milliseconds < 0) return 'now';
+    
+    const seconds = Math.floor(milliseconds / 1000);
+    if (seconds < 60) return `${seconds}s`;
+    
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    
+    if (minutes < 60) {
+      return `${minutes}m ${remainingSeconds}s`;
+    }
+    
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
+    
+    return `${hours}h ${remainingMinutes}m`;
+  };
 
   // Schedule transaction processing for all balances
   useEffect(() => {
@@ -183,7 +201,7 @@ export function useTransaction(
           walletId: wallet.id
         });
         
-        // Set timer to construct transaction at unlock time + 1 second buffer
+        // Set timer to construct transaction at unlock time with minimal buffer
         const timer = setTimeout(() => {
           constructAndSubmitTransaction(balance, wallet, currentSequence);
         }, timeUntilUnlock + SUBMIT_BUFFER_AFTER_UNLOCK);
@@ -449,26 +467,6 @@ export function useTransaction(
     
     startProcessingBalance(balance);
   }, [processingBalances, wallets, addLog, startProcessingBalance]);
-
-  // Helper function to format time remaining
-  const formatTimeRemaining = (milliseconds: number): string => {
-    if (milliseconds < 0) return 'now';
-    
-    const seconds = Math.floor(milliseconds / 1000);
-    if (seconds < 60) return `${seconds}s`;
-    
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-    
-    if (minutes < 60) {
-      return `${minutes}m ${remainingSeconds}s`;
-    }
-    
-    const hours = Math.floor(minutes / 60);
-    const remainingMinutes = minutes % 60;
-    
-    return `${hours}h ${remainingMinutes}m`;
-  };
 
   return {
     processingBalances,
