@@ -1,7 +1,6 @@
-import React, { useEffect, useCallback } from 'react';
+
+import React, { useEffect, useState, useCallback } from 'react';
 import { useWalletManager } from '@/hooks/useWalletManager';
-import { useClaimableBalances } from '@/hooks/useClaimableBalances';
-import { useTransaction } from '@/hooks/useTransaction';
 import WalletForm from '@/components/WalletForm';
 import WalletList from '@/components/WalletList';
 import LogDisplay from '@/components/LogDisplay';
@@ -9,32 +8,94 @@ import { RefreshCw, Coins, Wallet, GitFork } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { ClaimableBalance } from '@/lib/types';
+import { ClaimableBalance, TransactionStatus } from '@/lib/types';
+import { toast } from 'sonner';
+import { fetchClaimableBalances } from '@/lib/api';
 
 const Index = () => {
-  // Initialize hooks
+  // Get wallet management functionality from hook
   const { wallets, logs, addWallet, removeWallet, addLog, clearLogs, maskAddress } = useWalletManager();
   
-  const {
-    claimableBalances,
-    isLoading,
-    lastUpdate,
-    fetchAllBalances,
-    removeBalance,
-    markBalanceProcessing
-  } = useClaimableBalances(wallets, addLog);
-  
-  const {
-    processingBalances,
-    processBalanceNow,
-    formatTimeRemaining
-  } = useTransaction(wallets, claimableBalances, removeBalance, markBalanceProcessing, addLog);
+  // Local state for UI
+  const [claimableBalances, setClaimableBalances] = useState<ClaimableBalance[]>([]);
+  const [processingStatuses, setProcessingStatuses] = useState<Record<string, TransactionStatus>>({});
+  const [isLoading, setIsLoading] = useState(false);
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
 
   // Calculate total Pi pending
   const totalPending = claimableBalances.reduce(
     (total, balance) => total + parseFloat(balance.amount),
     0
   );
+
+  // Fetch all balances from the backend
+  const fetchAllBalances = useCallback(async (showToast = false) => {
+    setIsLoading(true);
+    
+    try {
+      let allBalances: ClaimableBalance[] = [];
+      
+      // Fetch balances for each wallet in parallel
+      const promises = wallets.map(async (wallet) => {
+        try {
+          const balances = await fetchClaimableBalances(wallet.address);
+          return balances.map(balance => ({
+            ...balance,
+            walletId: wallet.id
+          }));
+        } catch (error) {
+          console.error(`Error fetching balances for wallet ${wallet.address}:`, error);
+          return [];
+        }
+      });
+      
+      const results = await Promise.all(promises);
+      allBalances = results.flat();
+      
+      setClaimableBalances(allBalances);
+      setLastUpdate(new Date());
+      
+      if (showToast) {
+        toast.success("Balances refreshed successfully");
+      }
+      
+      addLog({
+        message: `Fetched ${allBalances.length} claimable balances across ${wallets.length} wallets`,
+        status: 'info'
+      });
+    } catch (error) {
+      console.error("Error fetching all balances:", error);
+      
+      if (showToast) {
+        toast.error("Failed to refresh balances");
+      }
+      
+      addLog({
+        message: `Failed to fetch balances: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        status: 'error'
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [wallets, addLog]);
+
+  // Fetch balances initially and on wallet changes
+  useEffect(() => {
+    if (wallets.length > 0) {
+      fetchAllBalances();
+    }
+  }, [wallets, fetchAllBalances]);
+
+  // Periodically refresh balances (every 5 minutes)
+  useEffect(() => {
+    const refreshInterval = setInterval(() => {
+      if (wallets.length > 0) {
+        fetchAllBalances();
+      }
+    }, 5 * 60 * 1000); // 5 minutes
+    
+    return () => clearInterval(refreshInterval);
+  }, [wallets, fetchAllBalances]);
 
   // Log component mount
   useEffect(() => {
@@ -53,35 +114,62 @@ const Index = () => {
         status: 'info'
       });
     };
-  }, []);
+  }, [addLog]);
 
+  // Handle manual refresh
   const handleRefresh = useCallback(() => {
-    fetchAllBalances(true); // Force refresh
-    addLog({
-      message: 'Manually refreshed claimable balances',
-      status: 'info'
-    });
-  }, [fetchAllBalances, addLog]);
+    fetchAllBalances(true); // Force refresh with toast
+  }, [fetchAllBalances]);
 
-  // Handle force processing a balance
-  const handleForceProcess = useCallback((balance: ClaimableBalance) => {
-    processBalanceNow(balance);
-  }, [processBalanceNow]);
-
-  // Wrapper function to handle the promise from addWallet
-  const handleAddWallet = useCallback(async (walletData: {
-    address: string;
-    privateKey: string;
-    destinationAddress: string;
-  }) => {
+  // Request the backend to force process a balance
+  const handleForceProcess = useCallback(async (balance: ClaimableBalance) => {
     try {
-      await addWallet(walletData);
-      return true;
+      // Update local status immediately for UI feedback
+      setProcessingStatuses(prev => ({
+        ...prev,
+        [balance.id]: 'submitting'
+      }));
+      
+      // Call backend API to force process (you need to implement this endpoint)
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:3001'}/api/force-process`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ balanceId: balance.id, walletId: balance.walletId }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to force process balance');
+      }
+      
+      toast.success('Balance is being processed by the server');
+      
+      addLog({
+        message: `Manually triggered processing for balance ${balance.id}`,
+        status: 'info',
+        walletId: balance.walletId
+      });
+      
+      // Refresh balances after a short delay
+      setTimeout(() => fetchAllBalances(), 2000);
     } catch (error) {
-      console.error('Error in handleAddWallet:', error);
-      return false;
+      console.error('Error forcing process:', error);
+      toast.error('Failed to process balance');
+      
+      // Reset status on error
+      setProcessingStatuses(prev => ({
+        ...prev,
+        [balance.id]: 'failed'
+      }));
+      
+      addLog({
+        message: `Failed to force process: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        status: 'error',
+        walletId: balance.walletId
+      });
     }
-  }, [addWallet]);
+  }, [addLog, fetchAllBalances]);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/30 bg-grid px-4 py-8 md:py-12">
@@ -150,7 +238,7 @@ const Index = () => {
         {/* Main Content */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
           {/* Wallet Form */}
-          <WalletForm onAddWallet={handleAddWallet} className="lg:col-span-1" />
+          <WalletForm onAddWallet={addWallet} className="lg:col-span-1" />
           
           {/* Logs */}
           <LogDisplay 
@@ -166,7 +254,7 @@ const Index = () => {
           <WalletList
             wallets={wallets}
             claimableBalances={claimableBalances}
-            processingStatuses={processingBalances}
+            processingStatuses={processingStatuses}
             onRemoveWallet={removeWallet}
             onForceProcess={handleForceProcess}
             maskAddress={maskAddress}

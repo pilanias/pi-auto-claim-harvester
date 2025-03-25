@@ -17,7 +17,7 @@ const BalanceTimer: React.FC<BalanceTimerProps> = ({
   const [isUnlocked, setIsUnlocked] = useState(false);
 
   useEffect(() => {
-    // Initialize state
+    // Calculate initial state
     const updateTimer = () => {
       const now = Date.now();
       const target = new Date(unlockTime).getTime();
@@ -35,7 +35,7 @@ const BalanceTimer: React.FC<BalanceTimerProps> = ({
     // Initial calculation
     updateTimer();
     
-    // Set up interval for continuous updates
+    // Update every second without API calls
     const intervalId = setInterval(updateTimer, 1000);
     
     // Clean up on unmount
