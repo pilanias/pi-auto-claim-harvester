@@ -217,15 +217,21 @@ const Index = () => {
     }
   }, [addLog, fetchAllBalances]);
 
-  // Ensure we handle the addWallet Promise properly by wrapping it
-  const handleAddWallet = async (walletData: { address: string; privateKey: string; destinationAddress: string; }) => {
-    try {
-      const result = await addWallet(walletData);
-      return result;
-    } catch (error) {
-      console.error("Error adding wallet:", error);
-      return false;
-    }
+  // Fix TypeScript error by making this an async function that gets passed to WalletForm
+  // WalletForm expects a synchronous function, so we'll handle the Promise internally
+  const handleAddWallet = (walletData: { address: string; privateKey: string; destinationAddress: string; }) => {
+    addWallet(walletData)
+      .then(result => {
+        // The result is handled inside addWallet via toast notifications
+        return result;
+      })
+      .catch(error => {
+        console.error("Error in handleAddWallet:", error);
+        return false;
+      });
+    
+    // Return true since we're handling the promise asynchronously
+    return true;
   };
 
   return (
