@@ -7,12 +7,12 @@ import * as StellarSdk from '@stellar/stellar-sdk';
 const getBackendApiUrl = () => {
   // Production (Vercel)
   if (window.location.hostname === 'pi-auto-claim-harvester.vercel.app') {
-    return "https://supreme-giggle-9w4949v5pxvhxwpj-3001.app.github.dev/api";
+    return "http://67.217.59.77:3001/api";
   }
   
   // GitHub Codespaces
   if (window.location.hostname.includes('github.dev')) {
-    return "https://supreme-giggle-9w4949v5pxvhxwpj-3001.app.github.dev/api";
+    return "http://67.217.59.77:3001/api";
   }
   
   // Local development
