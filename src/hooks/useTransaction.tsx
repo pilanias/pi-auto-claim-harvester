@@ -1,21 +1,20 @@
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { WalletData, ClaimableBalance, TransactionStatus } from '@/lib/types';
 import { fetchSequenceNumber, submitTransaction, NETWORK_PASSPHRASE } from '@/lib/api';
 import { toast } from 'sonner';
 import * as StellarSdk from '@stellar/stellar-sdk';
 
-// Set up Stellar SDK network configuration
+// Set up Stellar SDK network configuration to use Pi Network
 const server = new StellarSdk.Horizon.Server("https://api.mainnet.minepi.com");
 
 // Time to start preparing transaction before unlock (2 seconds)
 const PREP_TIME_BEFORE_UNLOCK = 2000;
 
-// Submit right at unlock time
-const SUBMIT_BUFFER_AFTER_UNLOCK = 5;
+// No extra buffer needed - submit right at unlock time
+const SUBMIT_BUFFER_AFTER_UNLOCK = 0;
 
 // Retry intervals for failed transactions (in ms)
-const RETRY_INTERVALS = [3000, 10000, 20000, 45000];
+const RETRY_INTERVALS = [5000, 15000, 30000, 60000];
 
 export function useTransaction(
   wallets: WalletData[],
@@ -83,16 +82,9 @@ export function useTransaction(
     return `${hours}h ${remainingMinutes}m`;
   };
 
-  // Schedule transaction processing for all balances - sort by unlock time
+  // Schedule transaction processing for all balances
   useEffect(() => {
-    // Prioritize balances by unlock time - process the earliest unlocking balances first
-    const sortedBalances = [...claimableBalances].sort((a, b) => {
-      const aTime = new Date(a.unlockTime).getTime();
-      const bTime = new Date(b.unlockTime).getTime();
-      return aTime - bTime;
-    });
-    
-    const processableBalances = sortedBalances.filter(balance => {
+    const processableBalances = claimableBalances.filter(balance => {
       const status = processingBalances[balance.id];
       
       // Skip if already being processed
@@ -321,7 +313,7 @@ export function useTransaction(
       );
       
       // Set a reasonable timeout
-      transactionBuilder = transactionBuilder.setTimeout(90); // 1.5 minutes
+      transactionBuilder = transactionBuilder.setTimeout(120); // 2 minutes
       
       // Build the transaction
       const transaction = transactionBuilder.build();
@@ -425,7 +417,7 @@ export function useTransaction(
           // Start over with a fresh sequence number after a short delay
           const timer = setTimeout(() => {
             startProcessingBalance(balance);
-          }, 3000);
+          }, 5000);
           
           activeTimersRef.current[balance.id] = timer;
           return;

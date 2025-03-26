@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState, useCallback } from 'react';
 import { useWalletManager } from '@/hooks/useWalletManager';
 import WalletForm from '@/components/WalletForm';
@@ -9,7 +10,7 @@ import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { ClaimableBalance, TransactionStatus } from '@/lib/types';
 import { toast } from 'sonner';
-import { fetchClaimableBalances, forceProcessBalance } from '@/lib/api';
+import { fetchClaimableBalances } from '@/lib/api';
 
 const Index = () => {
   // Get wallet management functionality from hook
@@ -27,42 +28,8 @@ const Index = () => {
     0
   );
 
-  // Extract unlock time from claimable balance record
-  const extractUnlockTime = (record: any): Date => {
-    // Check if we have claimants
-    if (!record.claimants || record.claimants.length === 0) {
-      return new Date(Date.now() + 1000 * 60 * 60 * 24); // Default to 24 hours from now if no claimants
-    }
-
-    try {
-      // Look for our wallet's claimant (usually first one)
-      const claimant = record.claimants[0];
-      
-      // If it has a "not" predicate (meaning it can only be claimed after a certain time)
-      if (claimant.predicate?.not?.abs_before) {
-        return new Date(claimant.predicate.not.abs_before);
-      }
-      
-      // If there's a second claimant with a "not" predicate, check that as well
-      if (record.claimants.length > 1 && record.claimants[1].predicate?.not?.abs_before) {
-        return new Date(record.claimants[1].predicate.not.abs_before);
-      }
-      
-      // Default fallback if we can't determine
-      return new Date(Date.now() + 1000 * 60 * 60 * 24); // Default to 24 hours from now
-    } catch (error) {
-      console.error("Error extracting unlock time:", error);
-      return new Date(Date.now() + 1000 * 60 * 60 * 24); // Default to 24 hours from now on error
-    }
-  };
-
   // Fetch all balances from the backend
   const fetchAllBalances = useCallback(async (showToast = false) => {
-    if (wallets.length === 0) {
-      setClaimableBalances([]);
-      return;
-    }
-    
     setIsLoading(true);
     
     try {
@@ -99,25 +66,10 @@ const Index = () => {
         }
       });
       
-      // Wait for all promises to resolve
       const results = await Promise.all(promises);
       allBalances = results.flat();
       
-      // Sort balances by unlock time (earliest first)
-      allBalances.sort((a, b) => {
-        return new Date(a.unlockTime).getTime() - new Date(b.unlockTime).getTime();
-      });
-      
-      // Preserve processing status from previous balances
-      const updatedBalances = allBalances.map(balance => {
-        const existingBalance = claimableBalances.find(b => b.id === balance.id);
-        if (existingBalance && existingBalance.isProcessing) {
-          return { ...balance, isProcessing: true };
-        }
-        return balance;
-      });
-      
-      setClaimableBalances(updatedBalances);
+      setClaimableBalances(allBalances);
       setLastUpdate(new Date());
       
       if (showToast) {
@@ -142,7 +94,36 @@ const Index = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [wallets, addLog, claimableBalances]);
+  }, [wallets, addLog]);
+
+  // Helper function to extract unlock time
+  const extractUnlockTime = (record: any): Date => {
+    // Check if we have claimants
+    if (!record.claimants || record.claimants.length === 0) {
+      return new Date(Date.now() + 1000 * 60 * 60 * 24); // Default to 24 hours from now if no claimants
+    }
+
+    try {
+      // Look for our wallet's claimant (usually first one)
+      const claimant = record.claimants[0];
+      
+      // If it has a "not" predicate (meaning it can only be claimed after a certain time)
+      if (claimant.predicate?.not?.abs_before) {
+        return new Date(claimant.predicate.not.abs_before);
+      }
+      
+      // If there's a second claimant with a "not" predicate, check that as well
+      if (record.claimants.length > 1 && record.claimants[1].predicate?.not?.abs_before) {
+        return new Date(record.claimants[1].predicate.not.abs_before);
+      }
+      
+      // Default fallback if we can't determine
+      return new Date(Date.now() + 1000 * 60 * 60 * 24); // Default to 24 hours from now
+    } catch (error) {
+      console.error("Error extracting unlock time:", error);
+      return new Date(Date.now() + 1000 * 60 * 60 * 24); // Default to 24 hours from now on error
+    }
+  };
 
   // Fetch balances initially and on wallet changes
   useEffect(() => {
@@ -151,13 +132,13 @@ const Index = () => {
     }
   }, [wallets, fetchAllBalances]);
 
-  // Periodically refresh balances (every 3 minutes)
+  // Periodically refresh balances (every 5 minutes)
   useEffect(() => {
     const refreshInterval = setInterval(() => {
       if (wallets.length > 0) {
         fetchAllBalances();
       }
-    }, 3 * 60 * 1000); // 3 minutes
+    }, 5 * 60 * 1000); // 5 minutes
     
     return () => clearInterval(refreshInterval);
   }, [wallets, fetchAllBalances]);
@@ -195,8 +176,18 @@ const Index = () => {
         [balance.id]: 'submitting'
       }));
       
-      // Call backend API to force process
-      await forceProcessBalance(balance.walletId, balance.id);
+      // Call backend API to force process (you need to implement this endpoint)
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:3001'}/api/force-process`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ balanceId: balance.id, walletId: balance.walletId }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to force process balance');
+      }
       
       toast.success('Balance is being processed by the server');
       
@@ -226,14 +217,17 @@ const Index = () => {
     }
   }, [addLog, fetchAllBalances]);
 
-  // Handle adding a wallet
+  // Fix TypeScript error by making this an async function that gets passed to WalletForm
+  // WalletForm expects a synchronous function, so we'll handle the Promise internally
   const handleAddWallet = (walletData: { address: string; privateKey: string; destinationAddress: string; }) => {
     addWallet(walletData)
-      .then(() => {
-        // Success is handled within addWallet via toast notifications
+      .then(result => {
+        // The result is handled inside addWallet via toast notifications
+        return result;
       })
       .catch(error => {
         console.error("Error in handleAddWallet:", error);
+        return false;
       });
     
     // Return true since we're handling the promise asynchronously

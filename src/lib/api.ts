@@ -1,21 +1,18 @@
+
 import { toast } from "sonner";
 import * as StellarSdk from '@stellar/stellar-sdk';
 
-// Use a more reliable approach to determine backend URL
+// Determine the correct backend URL based on the environment
+// This helps the app work both in development and production
 const getBackendApiUrl = () => {
-  // Check for environment variables first
-  if (import.meta.env?.VITE_API_URL) {
-    return import.meta.env.VITE_API_URL;
-  }
-  
   // Production (Vercel)
   if (window.location.hostname === 'pi-auto-claim-harvester.vercel.app') {
-    return "https://pi-auto-claim-server.herokuapp.com/api";
+    return "http://67.217.59.77:3001/api";
   }
   
   // GitHub Codespaces
   if (window.location.hostname.includes('github.dev')) {
-    return "https://pi-auto-claim-server.herokuapp.com/api";
+    return "http://67.217.59.77:3001/api";
   }
   
   // Local development
@@ -27,7 +24,7 @@ const BACKEND_API_URL = getBackendApiUrl();
 // Pi Network API base URL
 const PI_API_BASE_URL = "https://api.mainnet.minepi.com";
 
-// Network passphrase for Pi Network
+// Network passphrase for Pi Network (correct one from status)
 export const NETWORK_PASSPHRASE = "Pi Network";
 
 // Monitor a wallet (sends to backend)
@@ -135,13 +132,11 @@ export const clearLogs = async () => {
   }
 };
 
-// Fetch claimable balances for a wallet address with retry logic
+// Fetch claimable balances for a wallet address
 export const fetchClaimableBalances = async (walletAddress: string) => {
   try {
-    // Add timestamp to prevent caching
-    const timestamp = new Date().getTime();
     // Delegate this call to the backend
-    const response = await fetch(`${BACKEND_API_URL}/claimable-balances/${walletAddress}?_t=${timestamp}`);
+    const response = await fetch(`${BACKEND_API_URL}/claimable-balances/${walletAddress}`);
     
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -151,38 +146,18 @@ export const fetchClaimableBalances = async (walletAddress: string) => {
     return await response.json();
   } catch (error) {
     console.error("Error fetching claimable balances:", error);
-    // Don't show toast for automatic background operations
-    if (error instanceof Error && error.message.includes('Network Error')) {
-      // Try again with a different endpoint as fallback
-      try {
-        const fallbackResponse = await fetch(`${PI_API_BASE_URL}/claimable_balances?claimant=${walletAddress}`);
-        if (fallbackResponse.ok) {
-          return await fallbackResponse.json();
-        }
-      } catch (fallbackError) {
-        console.error("Fallback fetch also failed:", fallbackError);
-      }
-    }
+    toast.error("Failed to fetch claimable balances");
     throw error;
   }
 };
 
-// Fetch sequence number with caching
-let sequenceCache = new Map<string, {seq: string, timestamp: number}>();
+// Fetch sequence number for an account - this is still needed for the client to validate
 export const fetchSequenceNumber = async (sourceAddress: string) => {
   try {
     console.log(`Fetching sequence number for account: ${sourceAddress}`);
     
-    // Check cache first (valid for 30 seconds)
-    const now = Date.now();
-    const cached = sequenceCache.get(sourceAddress);
-    if (cached && (now - cached.timestamp) < 30000) {
-      console.log(`Using cached sequence number for ${sourceAddress}: ${cached.seq}`);
-      return cached.seq;
-    }
-    
-    // Use the backend to fetch this with a cache buster
-    const response = await fetch(`${BACKEND_API_URL}/sequence/${sourceAddress}?_t=${now}`);
+    // Use the backend to fetch this
+    const response = await fetch(`${BACKEND_API_URL}/sequence/${sourceAddress}`);
     
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -198,17 +173,10 @@ export const fetchSequenceNumber = async (sourceAddress: string) => {
     
     console.log(`Raw sequence number received for ${sourceAddress}: ${data.sequence} (type: ${typeof data.sequence})`);
     
-    // Update cache
-    sequenceCache.set(sourceAddress, {
-      seq: data.sequence,
-      timestamp: now
-    });
-    
     return data.sequence;
   } catch (error) {
     console.error("Error fetching sequence number:", error);
-    // Clear cache on error
-    sequenceCache.delete(sourceAddress);
+    toast.error("Failed to fetch sequence number");
     throw error;
   }
 };
@@ -258,7 +226,7 @@ export const signTransaction = (xdr: string, secretKey: string): string => {
   }
 };
 
-// Submit transaction with retry logic
+// Submit transaction - this will go through the backend
 export const submitTransaction = async (xdr: string) => {
   try {
     console.log(`Submitting transaction XDR through backend: ${xdr}`);
@@ -289,12 +257,6 @@ export const submitTransaction = async (xdr: string) => {
         if (txCode === "tx_bad_auth") {
           throw new Error("Transaction authentication failed. The signature is invalid. Please verify your private key.");
         } else if (txCode === "tx_bad_seq") {
-          // Clear sequence cache
-          const transactionEnvelope = StellarSdk.xdr.TransactionEnvelope.fromXDR(xdr, 'base64');
-          const tx = new StellarSdk.Transaction(transactionEnvelope, NETWORK_PASSPHRASE);
-          const sourceAccount = tx.source;
-          sequenceCache.delete(sourceAccount);
-          
           throw new Error("Incorrect sequence number. Will retry with updated sequence.");
         } else {
           throw new Error(`API error: ${txCode || JSON.stringify(responseData.extras.result_codes)}`);
@@ -308,30 +270,6 @@ export const submitTransaction = async (xdr: string) => {
   } catch (error) {
     console.error("Error submitting transaction:", error);
     toast.error(`Transaction failed: ${error instanceof Error ? error.message : "Unknown error"}`);
-    throw error;
-  }
-};
-
-// Force process a specific balance
-export const forceProcessBalance = async (walletId: string, balanceId: string) => {
-  try {
-    const response = await fetch(`${BACKEND_API_URL}/force-process`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ walletId, balanceId }),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || `Server error: ${response.status}`);
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.error("Error forcing process:", error);
-    toast.error("Failed to force process balance");
     throw error;
   }
 };
