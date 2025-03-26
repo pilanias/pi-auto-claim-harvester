@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { WalletData, ClaimableBalance, TransactionStatus } from '@/lib/types';
 import { Card, CardContent } from '@/components/ui/card';
@@ -28,6 +29,11 @@ const WalletItem: React.FC<WalletItemProps> = ({
     balance => balance.walletId === wallet.id
   );
   
+  // Sort by unlock time (earliest first)
+  walletBalances.sort((a, b) => {
+    return new Date(a.unlockTime).getTime() - new Date(b.unlockTime).getTime();
+  });
+  
   // Calculate total Pi amount
   const totalPi = walletBalances.reduce(
     (total, balance) => total + parseFloat(balance.amount),
@@ -36,6 +42,19 @@ const WalletItem: React.FC<WalletItemProps> = ({
 
   const isBalanceUnlocked = (unlockTime: Date) => {
     return new Date() >= new Date(unlockTime);
+  };
+
+  // Handle force process with debounce to prevent double-clicks
+  const handleForceProcess = (balance: ClaimableBalance) => {
+    if (!onForceProcess) return;
+    
+    // Prevent multiple clicks by checking status
+    const status = processingStatuses[balance.id];
+    if (status && status !== 'idle' && status !== 'failed') {
+      return;
+    }
+    
+    onForceProcess(balance);
   };
 
   return (
@@ -107,8 +126,9 @@ const WalletItem: React.FC<WalletItemProps> = ({
                           variant="ghost"
                           size="icon"
                           className="h-5 w-5 rounded-full"
-                          onClick={() => onForceProcess(balance)}
+                          onClick={() => handleForceProcess(balance)}
                           title="Force process"
+                          disabled={isProcessing}
                         >
                           <PlayCircle className="h-4 w-4 text-green-500" />
                         </Button>
